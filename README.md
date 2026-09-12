@@ -1,12 +1,12 @@
 # The Amazing Digital Service
 
-A small TypeScript website: looping video on top, a text input, and an image fetch.
+An AI assistant interface in TypeScript: chat on a looping video backdrop, with lookups and fetched stills.
 
 ## Live site
 
 https://mac-mvak.github.io/TheAmazingDigitalService/
 
-Pushes to `main` build the site and deploy it with GitHub Actions. The workflow turns Pages on automatically. If the repo is private on the free plan, GitHub will still 404 until the repo is public.
+Pushes to `main` build and deploy with GitHub Actions. If the repo is private on the free plan, GitHub Pages will 404 until the repo is public.
 
 ## Run it locally
 
@@ -17,9 +17,9 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
-- The hero uses a looping muted video from `public/video/hero.mp4`.
-- The archive still in `public/images/fetched-input.jpg` was fetched from Picsum and committed to the repo.
-- Type a word and submit to fetch another still (`https://picsum.photos/seed/<query>/…`).
+- The chat composer is the main interface. Enter sends, Shift+Enter adds a line.
+- Image requests (`show me a harbor at dusk`) fetch a still.
+- Other questions try a public text model, then Wikipedia, then a local reply.
 
 ## Build
 
@@ -27,12 +27,3 @@ Open [http://localhost:5173](http://localhost:5173).
 npm run build
 npm run preview
 ```
-
-To preview the GitHub Pages path locally:
-
-```bash
-GITHUB_PAGES=true npm run build
-GITHUB_PAGES=true npm run preview
-```
-
-Then open [http://localhost:4173/TheAmazingDigitalService/](http://localhost:4173/TheAmazingDigitalService/).
