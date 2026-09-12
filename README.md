@@ -13,6 +13,22 @@ npm run dev
 
 The app uses Vinext with React 19. `npm run build` builds the production Worker and client assets. `npx tsc --noEmit` checks TypeScript.
 
+### Deploy to Cloudflare
+
+The root `wrangler.jsonc` configures the `folio-video-assistant` Worker. Vite emits the deployable configuration in `dist/server/wrangler.json`; do not edit that generated file.
+
+With Doppler CLI signed in and the two Cloudflare credentials stored in `ai-vision` → `dev_personal`, run:
+
+```sh
+npm run deploy:doppler
+```
+
+This builds first, then reads only `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` into the deployment process. It does not write them to disk or upload them as application secrets. Other Doppler API keys are not loaded.
+
+Alternatively, use `npm run deploy` with Wrangler already authenticated or the two Cloudflare variables supplied by your CI secret store. Both commands build before publishing. The Worker is accessible at its public `workers.dev` URL; preview URLs are disabled. The existing Sites preview is a separate deployment.
+
+Deployment is manual; no GitHub Actions workflow is configured yet. Continue development on `codex/folio-video-assistant`.
+
 ### Demo behavior
 
 This is a frontend prototype. Messages receive guided sample replies; portrait videos are prerecorded stock clips and are not lip-synced. Audio uses the browser’s SpeechSynthesis API when enabled. Conversations live in memory and clear on refresh. No messages are sent to an AI service.
