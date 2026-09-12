@@ -117,8 +117,66 @@ export default function Demos() {
   const [maxSessionSec, setMaxSessionSec] = useState(180);
   const [steerText, setSteerText] = useState("");
   const [muted, setMuted] = useState(true);
+  const [chat, setChat] = useState<{ role: "user" | "assistant"; content: string }[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatError, setChatError] = useState("");
+  const [listening, setListening] = useState(false);
   const live = session.phase === "live" || session.phase === "opening";
   const ready = Boolean(anchorUrl);
+
+  async function sendChat(text: string) {
+    const content = text.trim();
+    if (!content || chatBusy) return;
+    const nextChat = [...chat, { role: "user" as const, content }];
+    setChat(nextChat);
+    setChatInput("");
+    setChatBusy(true);
+    setChatError("");
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messages: nextChat }),
+      });
+      const data = (await response.json().catch(() => null)) as { say?: string; scene?: string; error?: string } | null;
+      if (!response.ok || !data?.say) throw new Error(data?.error ?? `chat failed (${response.status})`);
+      setChat([...nextChat, { role: "assistant", content: data.say }]);
+      if (session.phase === "live") {
+        const beat = data.scene ? `${data.scene} ` : "";
+        session.steer(`${beat}She looks at the camera and says warmly: "${data.say}"`);
+      }
+    } catch (event) {
+      setChatError(event instanceof Error ? event.message : String(event));
+    } finally {
+      setChatBusy(false);
+    }
+  }
+
+  function dictate() {
+    type Recognition = {
+      lang: string;
+      interimResults: boolean;
+      onresult: (event: { results: { [index: number]: { [index: number]: { transcript: string } } } }) => void;
+      onerror: () => void;
+      onend: () => void;
+      start: () => void;
+    };
+    const speechWindow = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
+    const SpeechRecognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setChatError("Speech recognition is not available in this browser — type instead.");
+      return;
+    }
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = false;
+    recognition.onresult = event => void sendChat(event.results[0][0].transcript);
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => setListening(false);
+    setListening(true);
+    recognition.start();
+  }
 
   return (
     <div className="min-h-screen bg-neutral-950 px-4 py-8 text-neutral-100">
@@ -239,6 +297,47 @@ export default function Demos() {
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <video ref={videoRef} className="aspect-square w-full rounded-xl bg-black" playsInline muted={muted} poster={persona.image} />
             <div className="flex flex-col gap-2">
+              <div className="rounded-lg border border-emerald-900/60 bg-neutral-950 p-3">
+                <p className="text-xs font-semibold text-neutral-200">
+                  Talk to Nova <span className="font-normal text-neutral-500">— Grok writes her reply + scene; she speaks it in-stream at the next beat{!live && " (go live to see and hear her answer)"}</span>
+                </p>
+                <div className="mt-2 flex max-h-40 flex-col gap-1 overflow-y-auto text-xs">
+                  {chat.length === 0 && <span className="text-neutral-600">Say hi — with the mic or the keyboard.</span>}
+                  {chat.map((message, index) => (
+                    <p key={index} className={message.role === "user" ? "text-neutral-400" : "text-emerald-300"}>
+                      <span className="font-semibold">{message.role === "user" ? "You" : "Nova"}:</span> {message.content}
+                    </p>
+                  ))}
+                  {chatBusy && <span className="text-neutral-500">Nova is thinking…</span>}
+                </div>
+                <form
+                  className="mt-2 flex gap-2"
+                  onSubmit={event => {
+                    event.preventDefault();
+                    void sendChat(chatInput);
+                  }}
+                >
+                  <input
+                    className="flex-1 rounded-lg border border-neutral-700 bg-neutral-900 p-2 text-sm"
+                    placeholder="Talk with Nova…"
+                    value={chatInput}
+                    onChange={event => setChatInput(event.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className={`rounded-lg border px-3 text-sm ${listening ? "border-red-500 text-red-400" : "border-neutral-700 text-neutral-300"}`}
+                    onClick={dictate}
+                    disabled={chatBusy || listening}
+                    aria-label="Speak your message"
+                  >
+                    {listening ? "●" : "🎙"}
+                  </button>
+                  <button className="rounded-lg bg-emerald-600 px-3 text-sm font-medium text-white disabled:opacity-40" disabled={chatBusy || !chatInput.trim()}>
+                    Send
+                  </button>
+                </form>
+                {chatError && <p className="mt-1 text-xs text-red-400">{chatError}</p>}
+              </div>
               <form
                 className="flex gap-2"
                 onSubmit={event => {
