@@ -1,0 +1,17 @@
+{
+  "name": "convex-folio-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-hosted Convex backend that reverse-proxies to the Folio Cloudflare Worker.",
+  "type": "module",
+  "scripts": {
+    "codegen": "convex codegen",
+    "typecheck": "tsc --noEmit -p convex"
+  },
+  "dependencies": {
+    "convex": "1.45.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.2"
+  }
+}
