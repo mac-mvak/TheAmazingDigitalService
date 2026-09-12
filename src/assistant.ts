@@ -163,6 +163,11 @@ export async function askAssistant(history: ChatMessage[]): Promise<AssistantRep
     };
   }
 
+  const lowered = userText.toLowerCase();
+  if (/^(hi|hey|hello|yo|sup)\b/.test(lowered) || /(what can you do|help|who are you|what are you)/.test(lowered)) {
+    return { text: localReply(userText) };
+  }
+
   const generated = await tryPollinations(history);
   if (generated) {
     return { text: generated };
