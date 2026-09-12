@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
+import type { Doc } from "./_generated/dataModel";
 import {
   action,
   internalAction,
@@ -19,6 +20,19 @@ const DEFAULT_POLL_PATH = "/";
 const DEFAULT_INTERVAL_SECONDS = 60;
 const REQUEST_TIMEOUT_MS = 10_000;
 const PINGS_RETAINED = 500;
+
+// Annotated explicitly: `poll` calls `ensureSeeded` in this same file, and
+// without these the types become circular and stop inferring.
+type PollResult =
+  | { skipped: true; url: string }
+  | {
+      skipped: false;
+      url: string;
+      ok: boolean;
+      status?: number;
+      latencyMs: number;
+      error?: string;
+    };
 
 export const get = query({
   args: {},
@@ -123,7 +137,7 @@ export const setWorkerUrl = mutation({
 // worker lives, and returns whatever is stored.
 export const ensureSeeded = internalMutation({
   args: {},
-  handler: async (ctx) => {
+  handler: async (ctx): Promise<Doc<"endpoints">> => {
     const existing = await ctx.db
       .query("endpoints")
       .withIndex("by_name", (q) => q.eq("name", ENDPOINT_NAME))
@@ -173,10 +187,13 @@ export const record = internalMutation({
   },
 });
 
-async function pollOnce(ctx: ActionCtx) {
-  const endpoint = await ctx.runMutation(internal.worker.ensureSeeded, {});
+async function pollOnce(ctx: ActionCtx): Promise<PollResult> {
+  const endpoint: Doc<"endpoints"> = await ctx.runMutation(
+    internal.worker.ensureSeeded,
+    {},
+  );
   if (!endpoint.enabled) {
-    return { skipped: true as const, url: endpoint.url };
+    return { skipped: true, url: endpoint.url };
   }
 
   const target = new URL(endpoint.path, endpoint.url).toString();
@@ -200,7 +217,13 @@ async function pollOnce(ctx: ActionCtx) {
       status: response.status,
       latencyMs,
     });
-    return { skipped: false as const, url: target, ok: response.ok, status: response.status, latencyMs };
+    return {
+      skipped: false,
+      url: target,
+      ok: response.ok,
+      status: response.status,
+      latencyMs,
+    };
   } catch (error) {
     const latencyMs = Date.now() - startedAt;
     const message = error instanceof Error ? error.message : String(error);
@@ -210,7 +233,7 @@ async function pollOnce(ctx: ActionCtx) {
       latencyMs,
       error: message,
     });
-    return { skipped: false as const, url: target, ok: false, latencyMs, error: message };
+    return { skipped: false, url: target, ok: false, latencyMs, error: message };
   } finally {
     clearTimeout(timer);
   }
@@ -219,11 +242,11 @@ async function pollOnce(ctx: ActionCtx) {
 // Called by the cron in convex/crons.ts.
 export const poll = internalAction({
   args: {},
-  handler: async (ctx) => await pollOnce(ctx),
+  handler: async (ctx): Promise<PollResult> => await pollOnce(ctx),
 });
 
 // Same thing, callable by hand: `npx convex run worker:pollNow`.
 export const pollNow = action({
   args: {},
-  handler: async (ctx) => await pollOnce(ctx),
+  handler: async (ctx): Promise<PollResult> => await pollOnce(ctx),
 });
