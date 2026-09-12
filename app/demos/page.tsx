@@ -111,7 +111,8 @@ export default function Demos() {
   const { anchorUrl, uploading, error, upload } = useAnchorUrl();
   const videoRef = useRef<HTMLVideoElement>(null);
   const session = useDirectorSession(videoRef);
-  const [cadence, setCadence] = useState<number | null>(60);
+  const [cadence, setCadence] = useState<number | null>(null);
+  const [anchorSource, setAnchorSource] = useState<"snapshot" | "portrait">("snapshot");
   const [chunkDuration, setChunkDuration] = useState(10);
   const [restateIdentity, setRestateIdentity] = useState(true);
   const [maxSessionSec, setMaxSessionSec] = useState(180);
@@ -224,10 +225,25 @@ export default function Demos() {
                 disabled={live}
                 onChange={event => setCadence(event.target.value === "off" ? null : Number(event.target.value))}
               >
-                <option value="off">off (baseline)</option>
+                <option value="off">off (recommended — rescue only)</option>
                 <option value="30">every 30s</option>
                 <option value="60">every 60s</option>
                 <option value="120">every 120s</option>
+              </select>
+            </label>
+            <label className="flex items-center gap-2">
+              Anchor source
+              <select
+                className="rounded-md border border-neutral-700 bg-neutral-950 p-1"
+                value={anchorSource}
+                onChange={event => {
+                  const source = event.target.value as "snapshot" | "portrait";
+                  setAnchorSource(source);
+                  session.setAnchorSource(source);
+                }}
+              >
+                <option value="snapshot">live snapshot (gentle)</option>
+                <option value="portrait">portrait (hard reset)</option>
               </select>
             </label>
             <label className="flex items-center gap-2">
@@ -267,7 +283,7 @@ export default function Demos() {
               <button
                 className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
                 disabled={!ready}
-                onClick={() => session.start({ anchorUrl, cadenceSec: cadence, restateIdentity, chunkDuration, maxSessionSec })}
+                onClick={() => session.start({ anchorUrl, cadenceSec: cadence, anchorSource, restateIdentity, chunkDuration, maxSessionSec })}
               >
                 Go live
               </button>
@@ -276,7 +292,7 @@ export default function Demos() {
                 <button className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white" onClick={session.stop}>
                   Stop session
                 </button>
-                <button className="rounded-lg border border-neutral-700 px-3 py-2 text-sm" onClick={session.sendReanchor}>
+                <button className="rounded-lg border border-neutral-700 px-3 py-2 text-sm" onClick={() => void session.sendReanchor()}>
                   Re-anchor now
                 </button>
                 <button className="rounded-lg border border-neutral-700 px-3 py-2 text-sm" onClick={() => session.extend(60)}>

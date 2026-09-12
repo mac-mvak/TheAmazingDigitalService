@@ -10,10 +10,16 @@ export type DirectorPhase = "idle" | "opening" | "live" | "failed" | "closed";
 export type DirectorEvent = { at: number; label: string; detail?: string };
 
 export interface DirectorConfig {
-  /** fal-hosted persona frame; used as the exact first frame and every re-anchor target. */
+  /** fal-hosted persona frame; used as the exact first frame and the fallback re-anchor target. */
   anchorUrl: string;
-  /** Seconds between scheduled end_image_url re-anchors; null disables them. */
+  /** Seconds between scheduled end_image_url re-anchors; null disables them (recommended during conversation). */
   cadenceSec: number | null;
+  /**
+   * What a re-anchor targets. "snapshot" captures the current live frame and converges to it
+   * (gentle, in-distribution — but ratifies whatever drift already happened); "portrait" forces
+   * the original anchor frame (ground-truth identity, visible composition rewind).
+   */
+  anchorSource: "snapshot" | "portrait";
   /** Prepend the verbatim identity line to every steering delta. */
   restateIdentity: boolean;
   /** Chunk length in seconds (5–15). Steering lands at the next chunk boundary. */
@@ -30,6 +36,13 @@ interface DirectorHandle {
 const PROMO_PRICE_PER_SEC = 0.02;
 const BILLED_MINIMUM_SEC = 60;
 const MAX_EVENTS = 250;
+// Deliver-until-landed re-anchoring: resend a busted/rejected anchor at most
+// this many times, spaced at least this far apart (the API requires successive
+// end images >= 3s apart).
+const MAX_ANCHOR_ATTEMPTS = 6;
+const MIN_ANCHOR_RESEND_MS = 3000;
+
+type PendingAnchor = { version: number; url: string; settle: string; label: string; attempts: number; lastSentAt: number };
 
 export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | null>) {
   const [phase, setPhase] = useState<DirectorPhase>("idle");
@@ -41,6 +54,8 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
 
   const handleRef = useRef<DirectorHandle | null>(null);
   const versionRef = useRef(1);
+  const lastPromptAtRef = useRef(0);
+  const pendingAnchorRef = useRef<PendingAnchor | null>(null);
   const openedAtRef = useRef(0);
   const timersRef = useRef<ReturnType<typeof setInterval>[]>([]);
   const configRef = useRef<DirectorConfig | null>(null);
@@ -59,6 +74,7 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
   const stop = useCallback(() => {
     const handle = handleRef.current;
     handleRef.current = null;
+    pendingAnchorRef.current = null;
     clearTimers();
     if (handle) {
       handle.send({ type: "stop" });
@@ -69,20 +85,123 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
 
   const nextVersion = () => ++versionRef.current;
 
-  const sendReanchor = useCallback(() => {
-    const handle = handleRef.current;
-    const config = configRef.current;
-    if (!handle || !config) return;
-    handle.send({
-      type: "prompt",
-      prompt: steeringPrompt(persona.homePose, restateRef.current),
-      prompt_version: nextVersion(),
-      // Append after the planned chunks instead of busting live steering.
-      replan: false,
-      end_image_url: config.anchorUrl,
-    });
-    log("re-anchor sent", "end_image_url → home frame");
-  }, [log]);
+  // Capture the current live frame and host it on fal storage, so a re-anchor
+  // can converge to the session's own present look instead of rewinding to the
+  // original portrait. Returns null when there is no drawable frame yet.
+  const captureSnapshotUrl = useCallback(async (): Promise<string | null> => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2 || !video.videoWidth) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+    context.drawImage(video, 0, 0);
+    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/jpeg", 0.92));
+    if (!blob) return null;
+    try {
+      return await fal.storage.upload(new File([blob], "nova-live-snapshot.jpg", { type: "image/jpeg" }));
+    } catch {
+      return null;
+    }
+  }, [videoRef]);
+
+  const sendReanchor = useCallback(
+    async (options?: { scheduled?: boolean }) => {
+      const handle = handleRef.current;
+      const config = configRef.current;
+      if (!handle || !config) return;
+      // A scheduled anchor that fires mid-conversation would either be busted
+      // by the next replan:true steer or fight it — skip until things go quiet.
+      const sinceLastPromptMs = Date.now() - lastPromptAtRef.current;
+      if (options?.scheduled && sinceLastPromptMs < config.chunkDuration * 1500) {
+        log("re-anchor skipped", "recent steer — waiting for an idle beat");
+        return;
+      }
+      let targetUrl = config.anchorUrl;
+      let label = "portrait frame";
+      if (config.anchorSource === "snapshot") {
+        const snapshot = await captureSnapshotUrl();
+        if (snapshot) {
+          targetUrl = snapshot;
+          label = "live snapshot";
+        } else {
+          label = "portrait frame (snapshot unavailable)";
+        }
+      }
+      if (!handleRef.current) return; // session may have closed during capture/upload
+      const settle = steeringPrompt(
+        label === "live snapshot"
+          ? "She holds her presence naturally, staying centered and facing the camera."
+          : persona.homePose,
+        restateRef.current,
+      );
+      const version = nextVersion();
+      handleRef.current.send({
+        type: "prompt",
+        prompt: settle,
+        prompt_version: version,
+        // Append after the planned chunks instead of busting live steering.
+        replan: false,
+        end_image_url: targetUrl,
+      });
+      lastPromptAtRef.current = Date.now();
+      // Track delivery: onData resends this anchor until a prompt_applied for
+      // its version confirms it landed in a generated chunk.
+      pendingAnchorRef.current = { version, url: targetUrl, settle, label, attempts: 1, lastSentAt: Date.now() };
+      log("re-anchor sent", `end_image_url → ${label} (v${version}, will retry until it lands)`);
+    },
+    [captureSnapshotUrl, log],
+  );
+
+  const resendPendingAnchor = useCallback(
+    (reason: string) => {
+      const pending = pendingAnchorRef.current;
+      const handle = handleRef.current;
+      if (!pending || !handle) return;
+      if (pending.attempts >= MAX_ANCHOR_ATTEMPTS) {
+        log("re-anchor gave up", `${reason}, ${pending.attempts} attempts — use Re-anchor now or restart the session`);
+        pendingAnchorRef.current = null;
+        return;
+      }
+      // Respect end-image spacing; a chunk event arrives within seconds and retriggers this.
+      if (Date.now() - pending.lastSentAt < MIN_ANCHOR_RESEND_MS) return;
+      pending.version = nextVersion();
+      pending.attempts += 1;
+      pending.lastSentAt = Date.now();
+      handle.send({
+        type: "prompt",
+        prompt: pending.settle,
+        prompt_version: pending.version,
+        replan: false,
+        end_image_url: pending.url,
+      });
+      log("re-anchor resent", `${reason} — attempt ${pending.attempts}/${MAX_ANCHOR_ATTEMPTS}, v${pending.version}`);
+    },
+    [log],
+  );
+
+  const trackAnchorDelivery = useCallback(
+    (type: string, version: number | null) => {
+      const pending = pendingAnchorRef.current;
+      if (!pending || version === null) return;
+      if (type === "prompt_applied" && version === pending.version) {
+        log("re-anchor landed", `${pending.label}, v${pending.version} after ${pending.attempts} attempt(s)`);
+        pendingAnchorRef.current = null;
+        return;
+      }
+      if (type === "prompt_rejected" && version === pending.version) {
+        resendPendingAnchor("rejected");
+        return;
+      }
+      // A newer prompt got applied, or a chunk was generated past our version:
+      // the queued anchor was busted by a replan — append it again behind the traffic.
+      if ((type === "prompt_applied" || type === "chunk") && version > pending.version) {
+        resendPendingAnchor("overtaken by a newer steer");
+      }
+    },
+    [log, resendPendingAnchor],
+  );
 
   const steer = useCallback(
     (direction: string) => {
@@ -90,6 +209,7 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
       if (!handle || !direction.trim()) return;
       const prompt = steeringPrompt(direction, restateRef.current);
       handle.send({ type: "prompt", prompt, prompt_version: nextVersion(), replan: true });
+      lastPromptAtRef.current = Date.now();
       log("steer sent", prompt.length > 140 ? `${prompt.slice(0, 140)}…` : prompt);
     },
     [log],
@@ -100,6 +220,10 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
     setCapSec(capRef.current);
   }, []);
 
+  const setAnchorSource = useCallback((source: DirectorConfig["anchorSource"]) => {
+    if (configRef.current) configRef.current.anchorSource = source;
+  }, []);
+
   const start = useCallback(
     (config: DirectorConfig) => {
       if (handleRef.current) return;
@@ -108,6 +232,7 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
       capRef.current = config.maxSessionSec;
       setCapSec(config.maxSessionSec);
       versionRef.current = 1;
+      pendingAnchorRef.current = null;
       setEvents([]);
       setTtffMs(null);
       setBufferDepth(null);
@@ -152,6 +277,8 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
               .filter(Boolean)
               .join(" ");
             log(type, interesting || undefined);
+            const rawVersion = message["prompt_version"] ?? metrics["prompt_version"];
+            trackAnchorDelivery(type, typeof rawVersion === "number" ? rawVersion : null);
           } catch {
             log("data", raw.slice(0, 120));
           }
@@ -172,6 +299,7 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
         memory: 50,
         chunk_duration: config.chunkDuration,
       });
+      lastPromptAtRef.current = Date.now();
       log("configure queued", "memory=50 768p 1:1");
 
       timersRef.current.push(
@@ -184,10 +312,10 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
         }, 1000),
       );
       if (config.cadenceSec) {
-        timersRef.current.push(setInterval(sendReanchor, config.cadenceSec * 1000));
+        timersRef.current.push(setInterval(() => void sendReanchor({ scheduled: true }), config.cadenceSec * 1000));
       }
     },
-    [clearTimers, log, sendReanchor, stop, videoRef],
+    [clearTimers, log, sendReanchor, stop, trackAnchorDelivery, videoRef],
   );
 
   // Cost guardrails: stop when the tab is hidden, and on unmount.
@@ -207,5 +335,5 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
   const billedSec = elapsedSec > 0 ? Math.max(BILLED_MINIMUM_SEC, elapsedSec) : 0;
   const estimatedCost = billedSec * PROMO_PRICE_PER_SEC;
 
-  return { phase, events, ttffMs, elapsedSec, capSec, bufferDepth, estimatedCost, start, stop, steer, sendReanchor, extend };
+  return { phase, events, ttffMs, elapsedSec, capSec, bufferDepth, estimatedCost, start, stop, steer, sendReanchor, extend, setAnchorSource };
 }
