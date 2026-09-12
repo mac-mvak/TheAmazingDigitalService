@@ -1,0 +1,40 @@
+# Self-hosted Convex backend on Render.
+#
+# The application itself stays on Cloudflare Workers
+# (folio-video-assistant.theamazingdigitalservice.workers.dev). This service is
+# the Convex deployment that stores the worker's address and polls it once a
+# minute; see convex/worker.ts and convex/crons.ts.
+#
+# INSTANCE_SECRET is deliberately not committed: set it once in the Render
+# dashboard (or via the API) with `openssl rand -hex 32`. Changing it
+# invalidates every admin key issued for this deployment.
+services:
+  - type: web
+    name: convex-folio
+    runtime: image
+    image:
+      url: ghcr.io/get-convex/convex-backend:latest
+    plan: starter # a disk requires a paid instance type
+    region: oregon
+    healthCheckPath: /version
+    disk:
+      name: convex-data
+      mountPath: /convex/data # SQLite lives here; without it data is lost on redeploy
+      sizeGB: 1
+    envVars:
+      - key: INSTANCE_NAME
+        value: convex-folio
+      - key: INSTANCE_SECRET
+        sync: false
+      - key: CONVEX_CLOUD_ORIGIN
+        value: https://convex-folio.onrender.com
+      # Render publishes exactly one port per service, so HTTP actions (which
+      # the backend serves on 3211) are not reachable. Nothing here uses them.
+      - key: CONVEX_SITE_ORIGIN
+        value: https://convex-folio.onrender.com
+      - key: DISABLE_BEACON
+        value: "true"
+      - key: RUST_LOG
+        value: info
+      - key: PORT
+        value: "3210"
