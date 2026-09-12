@@ -4,11 +4,9 @@ A small TypeScript website: looping video on top, a text input, and an image fet
 
 ## Live site
 
-After this repo is merged to `main` and GitHub Pages is enabled (Settings → Pages → Source: **GitHub Actions**), the site is at:
-
 https://mac-mvak.github.io/TheAmazingDigitalService/
 
-This repository is currently private. GitHub Pages on a private repo needs GitHub Pro, Team, or Enterprise; on the free plan, make the repo public first.
+Pushes to `main` build the site and deploy it with GitHub Actions. The workflow turns Pages on automatically. If the repo is private on the free plan, GitHub will still 404 until the repo is public.
 
 ## Run it locally
 
