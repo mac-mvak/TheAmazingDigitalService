@@ -29,6 +29,10 @@ Alternatively, use `npm run deploy` with Wrangler already authenticated or the t
 
 Deployment is manual; no GitHub Actions workflow is configured yet. The current application is maintained on `main`; use feature branches for further development.
 
+### Convex use
+
+The app uses conves for routing video traffic
+
 ### Demo behavior
 
 This is a frontend prototype. Messages receive guided sample replies; portrait videos are prerecorded stock clips and are not lip-synced. Audio uses the browser’s SpeechSynthesis API when enabled. Conversations live in memory and clear on refresh. No messages are sent to an AI service.
