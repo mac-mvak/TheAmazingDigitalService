@@ -36,8 +36,20 @@ Render publishes one port per service, so the backend is reachable on 3210
 (client/CLI traffic) and its HTTP actions port, 3211, is not exposed. Nothing
 here uses HTTP actions.
 
+The deployment is live at `https://convex-folio.onrender.com` (Render service
+`srv-dain6k8jo6nc73fjmdqg`, Oregon). Render terminates TLS on 443 at its edge
+and routes by hostname, so the backend's own port 3210 is not addressed
+directly from outside.
+
 Push functions to it from a checkout with the admin key obtained from the
-running container (`./generate_admin_key.sh` as a Render one-off job):
+running container. The key is not committed; regenerate it at any time with a
+Render one-off job:
+
+```sh
+render jobs create srv-dain6k8jo6nc73fjmdqg --start-command "./generate_admin_key.sh"
+render logs --resources <job-id>   # the key is printed in the job's own logs
+```
+
 
 ```sh
 export CONVEX_SELF_HOSTED_URL=https://convex-folio.onrender.com
