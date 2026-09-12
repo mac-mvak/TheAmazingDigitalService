@@ -6,7 +6,11 @@ An AI assistant interface in TypeScript: chat on a looping video backdrop, with 
 
 https://mac-mvak.github.io/TheAmazingDigitalService/
 
-Pushes to `main` build and deploy with GitHub Actions. If the repo is private on the free plan, GitHub Pages will 404 until the repo is public.
+Pushes to `main` build the site and push it to the `gh-pages` branch. The live URL is:
+
+https://mac-mvak.github.io/TheAmazingDigitalService/
+
+If that URL 404s, enable Pages once: [Settings → Pages](https://github.com/mac-mvak/TheAmazingDigitalService/settings/pages) → Source **Deploy from a branch** → `gh-pages` / (root).
 
 ## Run it locally
 

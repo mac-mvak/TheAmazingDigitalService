@@ -6,10 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+# GITHUB_TOKEN cannot create a Pages site (needs admin). Push the built
+# files to gh-pages instead; that only needs contents:write.
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: pages
@@ -25,7 +25,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install
@@ -36,26 +36,22 @@ jobs:
         env:
           GITHUB_PAGES: "true"
 
-      - name: Enable GitHub Pages
+      - name: Deploy to gh-pages
         if: github.event_name != 'pull_request'
-        uses: actions/configure-pages@v5
+        uses: JamesIves/github-pages-deploy-action@v4
         with:
-          enablement: true
+          folder: dist
+          branch: gh-pages
+          clean: true
 
-      - name: Upload Pages artifact
+      - name: Pages setup hint
         if: github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-
-  deploy:
-    if: github.event_name != 'pull_request'
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+        run: |
+          {
+            echo "## GitHub Pages"
+            echo "The built site was pushed to the \`gh-pages\` branch."
+            echo
+            echo "If https://mac-mvak.github.io/TheAmazingDigitalService/ still 404s, open"
+            echo "https://github.com/${{ github.repository }}/settings/pages"
+            echo "set **Source** to **Deploy from a branch**, branch **gh-pages**, folder **/ (root)**, and save."
+          } >> "$GITHUB_STEP_SUMMARY"
