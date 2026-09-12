@@ -4,8 +4,10 @@ import { env } from "cloudflare:workers";
 // Director stream should SHOW. The say-line is embedded into the steering
 // prompt client-side, so the model generates her speaking it in-stream.
 const XAI_URL = "https://api.x.ai/v1/chat/completions";
-const MODEL = "grok-4.6";
-const REASONING_EFFORT: string | null = "medium";
+// Benchmarked with this key (same persona request): grok-4.20-0309-non-reasoning
+// 1.2s · grok-4.3 low 3.2s · grok-4.6 low 5.8s · grok-4.6 medium ~23s.
+const MODEL = "grok-4.20-0309-non-reasoning";
+const REASONING_EFFORT: string | null = null;
 const MAX_HISTORY = 24;
 const MAX_CONTENT_CHARS = 2000;
 
