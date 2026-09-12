@@ -1,77 +1,35 @@
 {
-  "reuse": "Pexels license permits free website/app use and modification without required attribution. Do not imply endorsement by the depicted people. These are demonstration stock video clips, not footage of an actual interactive agent.",
+  "note": "Generated assets. Portraits: personas/1-3.jpeg cropped to 9:16 (720x1280). Idle loops: minimax/h3-max/image-to-video on fal.ai with the portrait as both first and last frame (10 s, 768P, cropped to 9:16, audio stripped). Regenerate with `node scripts/generate-idle-loops.mjs [ids]` (spends fal credits, about $0.20 per clip at the promo price).",
   "assets": [
     {
-      "name": "woman-primary",
-      "video": "/tmp/assistant-assets/woman-primary.mp4",
-      "poster": "/tmp/assistant-assets/woman-primary.jpg",
-      "source_page": "https://www.pexels.com/video/woman-talking-and-looking-at-the-camera-8048241/",
-      "media_url": "https://videos.pexels.com/video-files/8048241/8048241-hd_1920_1080_25fps.mp4",
-      "author": "Antoni Shkraba",
-      "license_url": "https://www.pexels.com/license/",
-      "probe": {
-        "programs": [],
-        "stream_groups": [],
-        "streams": [
-          {
-            "codec_name": "h264",
-            "width": 1280,
-            "height": 720
-          }
-        ],
-        "format": {
-          "duration": "12.000000",
-          "size": "1430085"
-        }
-      }
+      "name": "nell",
+      "poster": "/assistants/nell.jpg",
+      "video": "/assistants/nell.mp4",
+      "generator": "minimax/h3-max/image-to-video",
+      "duration_seconds": 10,
+      "resolution": "720x1280",
+      "generated": "2026-09-12",
+      "request_id": "01a0964f-53b2-7ec0-a5b5-802a3f030750"
     },
     {
-      "name": "man",
-      "video": "/tmp/assistant-assets/man.mp4",
-      "poster": "/tmp/assistant-assets/man.jpg",
-      "source_page": "https://www.pexels.com/video/man-looking-at-the-camera-while-talking-8048255/",
-      "media_url": "https://videos.pexels.com/video-files/8048255/8048255-hd_1920_1080_25fps.mp4",
-      "author": "Antoni Shkraba",
-      "license_url": "https://www.pexels.com/license/",
-      "probe": {
-        "programs": [],
-        "stream_groups": [],
-        "streams": [
-          {
-            "codec_name": "h264",
-            "width": 1280,
-            "height": 720
-          }
-        ],
-        "format": {
-          "duration": "12.000000",
-          "size": "1325919"
-        }
-      }
+      "name": "mila",
+      "poster": "/assistants/mila.jpg",
+      "video": "/assistants/mila.mp4",
+      "generator": "minimax/h3-max/image-to-video",
+      "duration_seconds": 10,
+      "resolution": "720x1280",
+      "generated": "2026-09-12",
+      "request_id": "01a0964f-5412-70c2-8877-480faecc4cb0"
     },
     {
-      "name": "woman-secondary",
-      "video": "/tmp/assistant-assets/woman-secondary.mp4",
-      "poster": "/tmp/assistant-assets/woman-secondary.jpg",
-      "source_page": "https://www.pexels.com/video/a-woman-waving-and-talking-to-the-camera-8136213/",
-      "media_url": "https://videos.pexels.com/video-files/8136213/8136213-hd_1080_1920_25fps.mp4",
-      "author": "ANTONI SHKRABA production",
-      "license_url": "https://www.pexels.com/license/",
-      "probe": {
-        "programs": [],
-        "stream_groups": [],
-        "streams": [
-          {
-            "codec_name": "h264",
-            "width": 720,
-            "height": 1280
-          }
-        ],
-        "format": {
-          "duration": "12.000000",
-          "size": "2308581"
-        }
-      }
+      "name": "camille",
+      "poster": "/assistants/camille.jpg",
+      "video": "/assistants/camille.mp4",
+      "generator": "minimax/h3-max/image-to-video",
+      "duration_seconds": 10,
+      "resolution": "720x1280",
+      "generated": "2026-09-12",
+      "request_id": "01a0964f-53d5-7811-9e1f-7978f0efe3ca"
     }
   ]
 }

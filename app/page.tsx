@@ -2,186 +2,303 @@
 
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { ArrowUp, Play, Pause, AudioLines, Check, ChevronDown, ChevronRight, CircleHelp, Expand, Lightbulb, MessageSquare, Plus, Sparkles, Video, Volume2, VolumeX, X, Captions, CornerDownLeft, Leaf } from "lucide-react";
+import Link from "next/link";
+import { ArrowUp, Play, Pause, AudioLines, Check, ChevronDown, ChevronRight, CircleHelp, Expand, Lightbulb, MessageSquare, Plus, Sparkles, Video, Volume2, VolumeX, X, Captions, CornerDownLeft, Leaf, Radio, Square, SlidersHorizontal } from "lucide-react";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { PipelineConsole, formatClock } from "@/components/pipeline-console";
+import { useDirectorSession } from "@/hooks/use-director-session";
+import { usePipelineSettings, usePrefersReducedMotion } from "@/hooks/use-pipeline-settings";
+import { assistants, defaultAssistant, getAssistant, type AssistantProfile } from "@/lib/assistants";
+import { fal } from "@/lib/fal";
 
-const assistants = [
-  { id: "maya", name: "Maya", role: "Your everyday partner", description: "Thoughtful, curious, and here for whatever’s on your mind.", trait: "Warm & thoughtful", welcome: "Hey, I’m Maya. What’s on your mind today?", prompts: ["Let’s brainstorm", "Help me plan my day", "Talk through an idea"] },
-  { id: "leo", name: "Leo", role: "Your creative sidekick", description: "A fresh perspective for your next big—or little—idea.", trait: "Creative & curious", welcome: "Hey, I’m Leo. Let’s make something interesting.", prompts: ["Find a fresh angle", "Let’s brainstorm", "Help me name a project"] },
-  { id: "nora", name: "Nora", role: "Your clarity coach", description: "Make space for clear thinking and a practical next step.", trait: "Calm & insightful", welcome: "Hi, I’m Nora. Let’s find a little clarity together.", prompts: ["Set a meaningful goal", "Help me focus", "Talk through a decision"] },
-];
 type Message = { id: number; role: "user" | "assistant"; text: string; name: string };
 type Phase = "ready" | "thinking" | "speaking";
+type Reply = { say: string; scene: string };
 
-function demoReply(message: string, name: string) {
-  const text = message.toLowerCase();
-  if (/plan|day|focus|goal/.test(text)) return "Let’s give your day a little breathing room. Pick one thing that would make today feel worthwhile, and give it your first 25 minutes of focused attention. What would that one thing be?";
-  if (/brainstorm|idea|creative|angle|name/.test(text)) return "Let’s explore it together. Start with the person you want to help and the problem they’re facing. Then we can sketch three directions: a practical one, an unexpected one, and an ambitious one. What are you working on?";
-  if (/decision|choose|clarity/.test(text)) return "Let’s make the decision smaller. What are your options, and what matters most to you? We can compare each option against that, then find one small step that gives you more information.";
-  if (/hello|^hi\b|^hey\b/.test(text)) return `Hi! I’m ${name}. It’s good to meet you. We can explore an idea, organize your day, or think through a decision. Where would you like to start?`;
-  return "A helpful place to begin is the outcome you want. Describe what a good result would look like, and the biggest thing standing in the way. Then we can break it into a manageable first step.";
-}
+// Text-only mode has no voice; the "responding" state lasts about as long as reading the line.
+const TEXT_SPEAK_MS_PER_WORD = 320;
 
 function Tip({ label, children }: { label: string; children: ReactNode }) {
   return <Tooltip><TooltipTrigger asChild>{children}</TooltipTrigger><TooltipContent sideOffset={8}>{label}</TooltipContent></Tooltip>;
 }
 
+/** The direction for a spoken reply: the brain's visual beat, then her exact words. */
+function lineDirection(reply: Reply) {
+  const scene = reply.scene.trim().replace(/[.\s]+$/, "");
+  return `${scene ? `${scene}. ` : ""}She looks at the camera and says warmly: "${reply.say}"`;
+}
+
+function endedNote(reason: "user" | "cap" | "hidden" | "server") {
+  switch (reason) {
+    case "cap": return "The live session reached its time cap. Send a message to start a new one.";
+    case "hidden": return "The live session ended when this tab went into the background. Send a message to start a new one.";
+    case "server": return "The video connection closed. Send a message to start a new one.";
+    default: return "Live session ended. Send a message to start a new one.";
+  }
+}
+
 export default function Home() {
-  const [selected, setSelected] = useState("maya");
-  const assistant = assistants.find(a => a.id === selected)!;
+  const [selected, setSelected] = useState(defaultAssistant.persona.id);
+  const assistant = getAssistant(selected) ?? defaultAssistant;
+  const [settings, updateSettings] = usePipelineSettings();
+  const reducedMotion = usePrefersReducedMotion();
+  const [consoleOpen, setConsoleOpen] = useState(false);
   const [input, setInput] = useState("");
-  const [phase, setPhase] = useState<Phase>("ready");
+  const [thinking, setThinking] = useState(false);
+  const [textSpeaking, setTextSpeaking] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [caption, setCaption] = useState(assistant.welcome);
   const [captions, setCaptions] = useState(true);
-  const [muted, setMuted] = useState(true);
+  // The viewer's preference for her voice, and whether they have tapped the speaker after the browser refused unmuted autoplay.
+  const [mutedPreference, setMutedPreference] = useState(false);
+  const [unblocked, setUnblocked] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [paused, setPaused] = useState(true);
+  // null = follow the reduced-motion preference.
+  const [pausedOverride, setPausedOverride] = useState<boolean | null>(null);
+  const paused = pausedOverride ?? reducedMotion;
   const [videoFailed, setVideoFailed] = useState(false);
   const [notice, setNotice] = useState("");
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const expandedVideoRef = useRef<HTMLVideoElement>(null);
+  const [connecting, setConnecting] = useState(false);
+
+  const idleRef = useRef<HTMLVideoElement>(null);
+  const idleExpandedRef = useRef<HTMLVideoElement>(null);
+  const liveRef = useRef<HTMLVideoElement>(null);
+  const liveExpandedRef = useRef<HTMLVideoElement>(null);
   const expandRef = useRef<HTMLButtonElement>(null);
-  const mutedRef = useRef(true);
-  const busyRef = useRef(false);
-  const responseRef = useRef(0);
-  const speechRef = useRef(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const finishRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastMessageRef = useRef<HTMLDivElement>(null);
+  const busyRef = useRef(false);
+  const connectingRef = useRef(false);
+  const responseRef = useRef(0);
+  const textTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // One fal storage URL per assistant, so a second session does not re-upload the portrait.
+  const anchorUrlsRef = useRef<Record<string, string>>({});
+  // A reply that arrived while the stream was still opening; delivered once the engine has the identity contract.
+  const pendingReplyRef = useRef<Reply | null>(null);
+  const greetedRef = useRef(false);
+
+  const session = useDirectorSession(liveRef);
+  const { configured, steer } = session;
+  const streaming = session.phase === "opening" || session.phase === "live";
+  const showLive = session.phase === "live" && session.ttffMs !== null;
+  const connectingNow = connecting || session.phase === "opening" || (session.phase === "live" && session.ttffMs === null);
+  const remainingSec = Math.max(0, session.capSec - session.elapsedSec);
+  const phase: Phase = thinking ? "thinking" : session.speech !== "idle" || textSpeaking ? "speaking" : "ready";
+  const name = assistant.persona.name;
+  // Muted if the viewer chose it, or if the browser refused unmuted autoplay and the speaker has not been tapped since.
+  const muted = mutedPreference || (session.autoplayMuted && !unblocked);
+
+  // Latest render values for async work (a reply can land after the render that sent it).
+  const latest = useRef({ assistant, settings, streaming, configured, messageCount: messages.length });
+  useEffect(() => {
+    latest.current = { assistant, settings, streaming, configured, messageCount: messages.length };
+  });
+
+  useEffect(() => () => { if (textTimerRef.current) clearTimeout(textTimerRef.current); }, []);
+  useEffect(() => { lastMessageRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  // The idle loop plays in whichever card is visible and rests under the live picture.
+  useEffect(() => {
+    for (const video of [idleRef.current, idleExpandedRef.current]) {
+      if (!video) continue;
+      const hidden = expanded && video === idleRef.current;
+      if (paused || showLive || hidden) video.pause();
+      else video.play().catch(() => setPausedOverride(true));
+    }
+  }, [paused, selected, expanded, showLive]);
+  // Her voice follows the mute control.
+  useEffect(() => {
+    const video = liveRef.current;
+    if (!video) return;
+    video.muted = muted;
+    if (!muted && showLive && video.paused) void video.play().catch(() => {});
+  }, [muted, showLive]);
+  // The expanded card mirrors the stream, silently; the main card keeps the voice.
+  useEffect(() => {
+    const main = liveRef.current;
+    const copy = liveExpandedRef.current;
+    if (!expanded || !copy || !main?.srcObject) return;
+    copy.srcObject = main.srcObject;
+    copy.muted = true;
+    void copy.play().catch(() => {});
+  }, [expanded, showLive]);
+  // Once the engine has taken the identity contract: deliver the reply that was waiting, or greet.
+  useEffect(() => {
+    if (!configured) { greetedRef.current = false; return; }
+    const pending = pendingReplyRef.current;
+    if (pending) {
+      pendingReplyRef.current = null;
+      steer(lineDirection(pending), { speaking: true });
+      return;
+    }
+    if (greetedRef.current || busyRef.current || latest.current.messageCount > 0) return;
+    greetedRef.current = true;
+    const current = latest.current.assistant;
+    steer(`She looks at the camera, smiles, and says: "${current.welcome}"`, { speaking: true });
+    setCaption(current.welcome);
+    setMessages(previous => [...previous, { id: Date.now(), role: "assistant", text: current.welcome, name: current.persona.name }]);
+  }, [configured, steer]);
+
+  async function ensureAnchor(profile: AssistantProfile) {
+    const cached = anchorUrlsRef.current[profile.persona.id];
+    if (cached) return cached;
+    const blob = await (await fetch(profile.persona.image)).blob();
+    const url = await fal.storage.upload(new File([blob], `${profile.persona.id}.jpg`, { type: "image/jpeg" }));
+    anchorUrlsRef.current[profile.persona.id] = url;
+    return url;
+  }
+  async function goLive() {
+    const { settings: current, assistant: profile, streaming: alreadyLive } = latest.current;
+    if (current.mode !== "live" || alreadyLive || connectingRef.current) return;
+    connectingRef.current = true; setConnecting(true); setNotice(""); setUnblocked(false);
+    try {
+      const anchorUrl = await ensureAnchor(profile);
+      if (latest.current.assistant.persona.id !== profile.persona.id) return; // switched while uploading
+      session.start({
+        persona: profile.persona, anchorUrl,
+        resolution: current.resolution, cadenceSec: current.cadenceSec, anchorOnSteer: current.anchorOnSteer, restateIdentity: current.restateIdentity,
+        chunkDuration: current.chunkDuration, maxSessionSec: current.maxSessionSec, memory: current.memory, contractNotes: current.contractNotes,
+      });
+    } catch (error) {
+      pendingReplyRef.current = null;
+      setNotice(`The live video couldn’t start (${error instanceof Error ? error.message : String(error)}). Replies will show as captions.`);
+    } finally {
+      connectingRef.current = false; setConnecting(false);
+    }
+  }
+  function endLive() { pendingReplyRef.current = null; session.stop("user"); }
 
   function stopResponse() {
-    responseRef.current++; speechRef.current++; busyRef.current = false;
-    if (timerRef.current) clearTimeout(timerRef.current);
-    if (finishRef.current) clearTimeout(finishRef.current);
-    window.speechSynthesis?.cancel();
+    responseRef.current++; busyRef.current = false; setThinking(false);
+    pendingReplyRef.current = null;
+    if (textTimerRef.current) clearTimeout(textTimerRef.current);
+    setTextSpeaking(false);
   }
-  useEffect(() => () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    if (finishRef.current) clearTimeout(finishRef.current);
-    window.speechSynthesis?.cancel();
-  }, []);
-  useEffect(() => { lastMessageRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
-  useEffect(() => {
-    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setPaused(preference.matches);
-    const update = () => setPaused(preference.matches);
-    preference.addEventListener("change", update);
-    return () => preference.removeEventListener("change", update);
-  }, []);
-  useEffect(() => {
-    for (const video of [videoRef.current, expandedVideoRef.current]) {
-      if (!video) continue;
-      if (paused || (expanded && video === videoRef.current)) video.pause();
-      else video.play().catch(() => setPaused(true));
-    }
-  }, [paused, selected, expanded]);
-
   function switchAssistant(id: string) {
     if (id === selected) return;
+    const next = getAssistant(id);
+    if (!next) return;
     stopResponse();
-    const next = assistants.find(a => a.id === id)!;
-    setSelected(id); setPhase("ready"); setCaption(next.welcome); setVideoFailed(false); setNotice("");
+    if (latest.current.streaming) session.stop("user");
+    setSelected(id); setMessages([]); setInput(""); setCaption(next.welcome); setVideoFailed(false); setNotice("");
   }
   function newSession() {
-    stopResponse(); setMessages([]); setInput(""); setPhase("ready"); setCaption(assistant.welcome); setNotice("");
+    stopResponse();
+    if (streaming) session.stop("user");
+    setMessages([]); setInput(""); setCaption(assistant.welcome); setNotice("");
     inputRef.current?.focus();
   }
-  function finishResponse(token: number) {
-    if (token !== responseRef.current) return;
-    if (finishRef.current) clearTimeout(finishRef.current);
-    busyRef.current = false; setPhase("ready");
+  function speakAsText(text: string, token: number) {
+    setTextSpeaking(true);
+    const words = text.split(/\s+/).filter(Boolean).length;
+    textTimerRef.current = setTimeout(() => { if (token === responseRef.current) setTextSpeaking(false); }, Math.max(2500, words * TEXT_SPEAK_MS_PER_WORD));
   }
-  function speak(text: string, token: number) {
-    if (mutedRef.current || !("speechSynthesis" in window)) return false;
-    const speechToken = ++speechRef.current;
-    window.speechSynthesis.cancel();
-    const speech = new SpeechSynthesisUtterance(text);
-    speech.rate = 0.94;
-    const voices = window.speechSynthesis.getVoices().filter(voice => voice.lang.startsWith("en"));
-    const preferred = voices.find(voice => selected === "leo" ? /Daniel|David|James/.test(voice.name) : /Samantha|Karen|Moira|Zira/.test(voice.name));
-    if (preferred) speech.voice = preferred;
-    const current = () => token === responseRef.current && speechToken === speechRef.current;
-    speech.onend = () => { if (current()) finishResponse(token); };
-    speech.onerror = event => {
-      if (!current() || event.error === "canceled" || event.error === "interrupted") return;
-      setNotice("Audio is unavailable. Your response is in the captions and transcript."); finishResponse(token);
-    };
-    window.speechSynthesis.speak(speech);
-    return true;
-  }
-  function sendMessage(event?: FormEvent, suppliedText?: string) {
+  async function sendMessage(event?: FormEvent, suppliedText?: string) {
     event?.preventDefault();
     const text = (suppliedText ?? input).trim();
     if (!text || busyRef.current) return;
-    stopResponse();
-    const token = responseRef.current;
+    const { assistant: profile, settings: current } = latest.current;
+    const token = ++responseRef.current;
     busyRef.current = true;
-    setInput(""); setNotice(""); setPhase("thinking"); setCaption("Let me think about that…");
+    if (textTimerRef.current) clearTimeout(textTimerRef.current);
+    setTextSpeaking(false);
+    const previousCaption = caption;
+    setInput(""); setNotice(""); setThinking(true); setCaption("Let me think about that…");
+    const history = [...messages.map(message => ({ role: message.role, content: message.text })), { role: "user" as const, content: text }];
     setMessages(previous => [...previous, { id: Date.now(), role: "user", text, name: "You" }]);
-    timerRef.current = setTimeout(() => {
+    // The stream opens in parallel with the reply; the reply waits for the engine if it wins the race.
+    if (current.mode === "live" && !latest.current.streaming) void goLive();
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ messages: history, persona: profile.persona.id, model: current.model, reasoningEffort: current.reasoningEffort, instructions: current.instructions }),
+      });
+      const data = (await response.json().catch(() => null)) as { say?: string; scene?: string; error?: string } | null;
+      if (!response.ok || !data?.say) throw new Error(data?.error ?? `reply failed (${response.status})`);
       if (token !== responseRef.current) return;
-      const reply = demoReply(text, assistant.name);
-      setCaption(reply); setPhase("speaking");
-      setMessages(previous => [...previous, { id: Date.now(), role: "assistant", text: reply, name: assistant.name }]);
-      const speaking = speak(reply, token);
-      finishRef.current = setTimeout(() => finishResponse(token), speaking ? 60000 : 5500);
-    }, 1100);
-  }
-  function toggleAudio() {
-    const nextMuted = !mutedRef.current;
-    mutedRef.current = nextMuted; setMuted(nextMuted);
-    if (nextMuted) {
-      speechRef.current++; window.speechSynthesis?.cancel();
-      if (phase === "speaking") finishResponse(responseRef.current);
-    } else if (!("speechSynthesis" in window)) {
-      setNotice("This browser doesn’t support spoken responses. Captions are available.");
-    } else if (phase !== "thinking" && messages.at(-1)?.role === "assistant" && caption !== assistant.welcome) {
-      if (finishRef.current) clearTimeout(finishRef.current);
-      busyRef.current = true; setPhase("speaking");
-      const token = responseRef.current;
-      speak(caption, token);
-      finishRef.current = setTimeout(() => finishResponse(token), 60000);
+      const reply: Reply = { say: data.say, scene: data.scene ?? "" };
+      setCaption(reply.say);
+      setMessages(previous => [...previous, { id: Date.now() + 1, role: "assistant", text: reply.say, name: profile.persona.name }]);
+      if (current.mode === "live" && (latest.current.streaming || connectingRef.current)) {
+        if (latest.current.configured) session.steer(lineDirection(reply), { speaking: true });
+        else pendingReplyRef.current = reply;
+      } else {
+        speakAsText(reply.say, token);
+      }
+    } catch (error) {
+      if (token !== responseRef.current) return;
+      setCaption(previousCaption);
+      setNotice(`${profile.persona.name} couldn’t reply: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      if (token === responseRef.current) { busyRef.current = false; setThinking(false); }
     }
   }
+  function toggleVoice() {
+    if (muted) { setMutedPreference(false); setUnblocked(true); }
+    else setMutedPreference(true);
+  }
   const actionsRef = useRef({ switchAssistant });
-  actionsRef.current = { switchAssistant };
+  useEffect(() => {
+    actionsRef.current = { switchAssistant };
+  });
   useEffect(() => {
     type PageTool = { name: string; description: string; inputSchema: object; annotations: { readOnlyHint: boolean }; execute: (input: unknown) => unknown };
     const context = (document as Document & { modelContext?: { registerTool: (tool: PageTool, options: { signal: AbortSignal }) => void | Promise<void> } }).modelContext;
     if (!context?.registerTool) return;
     const lifecycle = new AbortController();
+    const ids = assistants.map(profile => profile.persona.id);
     try {
       Promise.resolve(context.registerTool({
-        name: "select_assistant", description: "Switch the visible demo conversation to Maya, Leo, or Nora. Cancels any response in progress and preserves the transcript.",
-        inputSchema: { type: "object", properties: { assistant: { type: "string", enum: ["maya", "leo", "nora"] } }, required: ["assistant"], additionalProperties: false },
+        name: "select_assistant", description: `Switch the conversation to ${assistants.map(profile => profile.persona.name).join(", ")}. Ends any live video session and starts a fresh transcript.`,
+        inputSchema: { type: "object", properties: { assistant: { type: "string", enum: ids } }, required: ["assistant"], additionalProperties: false },
         annotations: { readOnlyHint: false },
         execute(input) {
-          if (!input || typeof input !== "object" || !("assistant" in input) || Object.keys(input).length !== 1 || !assistants.some(a => a.id === input.assistant)) throw new Error("Choose maya, leo, or nora.");
+          if (!input || typeof input !== "object" || !("assistant" in input) || Object.keys(input).length !== 1 || !ids.includes(String((input as { assistant: unknown }).assistant))) throw new Error(`Choose one of ${ids.join(", ")}.`);
           const id = (input as { assistant: string }).assistant;
           flushSync(() => actionsRef.current.switchAssistant(id));
-          return { assistant: id, status: "ready", mode: "demo" };
+          return { assistant: id, status: "ready" };
         }
       }, { signal: lifecycle.signal })).catch(() => {});
     } catch { /* The normal UI remains available in browsers without WebMCP. */ }
     return () => lifecycle.abort();
   }, []);
 
+  const statusText = phase === "thinking" ? "Thinking" : phase === "speaking" ? `${name} is responding` : connectingNow ? "Connecting…" : showLive ? "Live" : "Ready to chat";
+  const statusDot = phase === "thinking" || (phase === "ready" && connectingNow) ? "thinking" : phase === "speaking" ? "speaking" : "";
+  const composerNote = notice || (
+    phase === "thinking" ? `${name} is putting a thought together…`
+    : showLive ? `Live with ${name} · ${formatClock(remainingSec)} left${session.autoplayMuted && muted ? " · tap the speaker to hear her" : ""}`
+    : connectingNow ? `Connecting to ${name}… the first picture takes about 15 seconds.`
+    : session.stopReason && messages.length > 0 ? endedNote(session.stopReason)
+    : settings.mode === "live" ? `Send a message or press Go live to start a video session with ${name}.`
+    : "Text only · replies appear as captions. Turn on live video in the pipeline console."
+  );
+
   function renderVideo(inDialog = false) { return (
-              <div className={`video-card ${phase}`}>
-                <img className="video-poster" src={`/assistants/${assistant.id}.jpg`} alt={`${assistant.name}, your virtual assistant`} />
-                {!videoFailed && <video key={selected} ref={inDialog ? expandedVideoRef : videoRef} className="assistant-video" autoPlay={!paused} muted loop playsInline preload="auto" poster={`/assistants/${assistant.id}.jpg`} onError={() => setVideoFailed(true)} aria-label={`Sample portrait video of ${assistant.name}`}><source src={`/assistants/${assistant.id}.mp4`} type="video/mp4"/></video>}
+              <div className={`video-card ${phase} ${showLive ? "is-live" : ""}`}>
+                <img className="video-poster" src={assistant.persona.image} alt={`${name}, your video assistant`} />
+                {!videoFailed && <video key={selected} ref={inDialog ? idleExpandedRef : idleRef} className="assistant-video idle-loop" autoPlay={!paused} muted loop playsInline preload="auto" poster={assistant.persona.image} onError={() => setVideoFailed(true)} aria-label={`${name}, waiting to chat`}><source src={assistant.video} type="video/mp4"/></video>}
+                <video ref={inDialog ? liveExpandedRef : liveRef} className={`assistant-video live-stream ${showLive ? "visible" : ""}`} playsInline autoPlay muted={inDialog || muted} aria-label={`Live video of ${name}`}/>
                 <div className="video-shade"/>
-                <div className="video-top"><span className="video-status"><span className={`status-dot ${phase}`}/>{phase === "thinking" ? "Thinking" : phase === "speaking" ? `${assistant.name} is responding` : "Ready to chat"}</span><span className="demo-badge">DEMO</span></div>
-                <div className="video-bottom"><div className="on-screen-name">{assistant.name}<span>Here with you</span></div>
+                <div className="video-top"><span className="video-status"><span className={`status-dot ${statusDot}`}/>{statusText}</span>
+                  {showLive ? <span className="video-badge live">LIVE {formatClock(remainingSec)}</span> : connectingNow ? <span className="video-badge">CONNECTING</span> : settings.mode === "text" ? <span className="video-badge">TEXT ONLY</span> : null}
+                </div>
+                <div className="video-bottom"><div className="on-screen-name">{name}<span>{assistant.role}</span></div>
                   {captions && <p className={`video-caption ${phase === "thinking" ? "thinking-caption" : ""}`} aria-live="polite">{caption}</p>}
-                  {videoFailed && <p className="video-fallback">Video unavailable · portrait mode</p>}
+                  {videoFailed && !showLive && <p className="video-fallback">Video unavailable · portrait mode</p>}
                   <div className="video-controls"><div className={`audio-wave ${phase === "speaking" ? "active" : ""}`} aria-hidden="true">{[0,1,2,3,4,5,6,7,8].map(i => <i key={i} style={{animationDelay: `${i * 0.1}s`}}/>)}</div>
-                    <div className="video-buttons"><Tip label={paused ? "Play portrait video" : "Pause portrait video"}><button className="video-control" aria-label={paused ? "Play portrait video" : "Pause portrait video"} onClick={() => setPaused(!paused)}>{paused ? <Play size={16}/> : <Pause size={16}/>}</button></Tip><Tip label={muted ? "Enable spoken responses" : "Mute spoken responses"}><button className="video-control" aria-label={muted ? "Enable spoken responses" : "Mute spoken responses"} aria-pressed={!muted} onClick={toggleAudio}>{muted ? <VolumeX size={17}/> : <Volume2 size={17}/>}</button></Tip><Tip label={captions ? "Hide captions" : "Show captions"}><button className={`video-control ${captions ? "control-active" : ""}`} aria-label="Toggle captions" aria-pressed={captions} onClick={() => setCaptions(!captions)}><Captions size={19}/></button></Tip><Tip label={expanded ? "Exit expanded video" : "Expand video"}><button ref={inDialog ? undefined : expandRef} className="video-control" aria-label={expanded ? "Exit expanded video" : "Expand video"} onClick={() => setExpanded(!expanded)}>{expanded ? <X size={18}/> : <Expand size={16}/>}</button></Tip></div>
+                    <div className="video-buttons">
+                      {settings.mode === "live" && (streaming
+                        ? <Tip label="End the live session"><button className="video-control wide end-live" aria-label="End the live session" onClick={endLive}><Square size={12}/>End</button></Tip>
+                        : <Tip label="Start a live video session"><button className="video-control wide go-live" aria-label="Start a live video session" disabled={connecting} onClick={() => void goLive()}><Radio size={14}/>{connecting ? "Starting…" : "Go live"}</button></Tip>)}
+                      {!showLive && <Tip label={paused ? "Play portrait video" : "Pause portrait video"}><button className="video-control" aria-label={paused ? "Play portrait video" : "Pause portrait video"} onClick={() => setPausedOverride(!paused)}>{paused ? <Play size={16}/> : <Pause size={16}/>}</button></Tip>}
+                      <Tip label={muted ? "Unmute her voice" : "Mute her voice"}><button className="video-control" aria-label={muted ? "Unmute her voice" : "Mute her voice"} aria-pressed={!muted} onClick={toggleVoice}>{muted ? <VolumeX size={17}/> : <Volume2 size={17}/>}</button></Tip>
+                      <Tip label={captions ? "Hide captions" : "Show captions"}><button className={`video-control ${captions ? "control-active" : ""}`} aria-label="Toggle captions" aria-pressed={captions} onClick={() => setCaptions(!captions)}><Captions size={19}/></button></Tip>
+                      <Tip label={expanded ? "Exit expanded video" : "Expand video"}><button ref={inDialog ? undefined : expandRef} className="video-control" aria-label={expanded ? "Exit expanded video" : "Expand video"} onClick={() => setExpanded(!expanded)}>{expanded ? <X size={18}/> : <Expand size={16}/>}</button></Tip>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -190,17 +307,20 @@ export default function Home() {
   return <TooltipProvider delayDuration={200}>
     <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href="/" aria-label="Folio home"><span className="brand-mark"><AudioLines size={23} strokeWidth={2.3}/></span>folio<span className="brand-period">.</span></a>
+        <Link className="brand" href="/" aria-label="Folio home"><span className="brand-mark"><AudioLines size={23} strokeWidth={2.3}/></span>folio<span className="brand-period">.</span></Link>
         <div className="workspace-label">Your personal workspace <ChevronDown size={14}/></div>
-        <div className="topbar-actions"><span className="private-label"><Leaf size={14}/> A little space for you</span><div className="profile" aria-label="Personal workspace">Y</div></div>
+        <div className="topbar-actions"><span className="private-label"><Leaf size={14}/> A little space for you</span>
+          <button className="text-button pipeline-button" onClick={() => setConsoleOpen(true)} aria-label="Open the pipeline console"><SlidersHorizontal size={15}/><span>Pipeline</span>{streaming && <span className="pipeline-live-dot" aria-hidden="true"/>}</button>
+          <div className="profile" aria-label="Personal workspace">Y</div></div>
       </header>
+      <PipelineConsole open={consoleOpen} onOpenChange={setConsoleOpen} assistant={assistant} settings={settings} onChange={updateSettings} session={session} connecting={connecting} onGoLive={() => void goLive()} onEnd={endLive} />
       <div className="workspace">
         <main className="main-panel">
           <div className="session-bar">
-            <div className="breadcrumb"><Video size={16}/><span>Conversation</span><ChevronRight size={13}/><span className="breadcrumb-current">With {assistant.name}</span></div>
+            <div className="breadcrumb"><Video size={16}/><span>Conversation</span><ChevronRight size={13}/><span className="breadcrumb-current">With {name}</span></div>
             <div className="session-actions">
               <Sheet><SheetTrigger asChild><button className="text-button" aria-label="Open transcript"><MessageSquare size={15}/><span>Transcript</span>{messages.length > 0 && <span className="message-count">{messages.length}</span>}</button></SheetTrigger>
-                <SheetContent className="transcript-sheet"><SheetHeader><SheetTitle>Your conversation</SheetTitle><SheetDescription>A transcript of this demo session. It stays here until you start a new session or reload.</SheetDescription></SheetHeader>
+                <SheetContent className="transcript-sheet"><SheetHeader><SheetTitle>Your conversation</SheetTitle><SheetDescription>Everything said in this session. It stays here until you start a new session or reload.</SheetDescription></SheetHeader>
                   <div className="transcript-messages" role="log" aria-label="Conversation transcript">
                     {!messages.length ? <div className="transcript-empty"><MessageSquare size={28}/><h3>A fresh conversation</h3><p>Send a message and your conversation will appear here.</p></div> : messages.map(message => <div className={`transcript-message ${message.role}`} key={message.id}><span>{message.name}</span><p>{message.text}</p></div>)}<div ref={lastMessageRef}/>
                   </div>
@@ -214,19 +334,19 @@ export default function Home() {
             <Dialog open={expanded} onOpenChange={setExpanded}>
               <div className="video-stage">{renderVideo()}</div>
               <DialogContent className="expanded-dialog" showCloseButton={false} onCloseAutoFocus={event => { event.preventDefault(); expandRef.current?.focus(); }}>
-                <DialogTitle className="sr-only">{assistant.name} — expanded video</DialogTitle>
-                <DialogDescription className="sr-only">Sample assistant video with captions and playback controls.</DialogDescription>
+                <DialogTitle className="sr-only">{name} — expanded video</DialogTitle>
+                <DialogDescription className="sr-only">Live assistant video with captions and playback controls.</DialogDescription>
                 {renderVideo(true)}
               </DialogContent>
             </Dialog>
             <div className="composer-area">
-              <div className="suggestions"><span>Try asking</span>{assistant.prompts.map((prompt, index) => <button key={prompt} disabled={phase !== "ready"} onClick={() => sendMessage(undefined, prompt)}>{index === 0 && <Sparkles size={13}/>} {prompt}</button>)}</div>
+              <div className="suggestions"><span>Try asking</span>{assistant.prompts.map((prompt, index) => <button key={prompt} disabled={phase === "thinking"} onClick={() => sendMessage(undefined, prompt)}>{index === 0 && <Sparkles size={13}/>} {prompt}</button>)}</div>
               <form className="composer" onSubmit={sendMessage}>
-                <label htmlFor="message" className="sr-only">Message {assistant.name}</label>
-                <textarea ref={inputRef} id="message" placeholder={`Talk to ${assistant.name}…`} value={input} maxLength={2000} rows={2} onChange={event => setInput(event.target.value)} onKeyDown={event => { if(event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); sendMessage(); } }}/>
-                <div className="composer-bottom"><span><Video size={14}/> You type. {assistant.name} responds.</span><div className="send-area"><span className="enter-hint">Enter to send <CornerDownLeft size={12}/></span><button className="send-button" disabled={!input.trim() || phase !== "ready"} type="submit" aria-label="Send message">{phase === "thinking" ? <span className="loading-spinner"/> : <ArrowUp size={21}/>}</button></div></div>
+                <label htmlFor="message" className="sr-only">Message {name}</label>
+                <textarea ref={inputRef} id="message" placeholder={`Talk to ${name}…`} value={input} maxLength={2000} rows={2} onChange={event => setInput(event.target.value)} onKeyDown={event => { if(event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); sendMessage(); } }}/>
+                <div className="composer-bottom"><span><Video size={14}/> You type. {name} answers on video.</span><div className="send-area"><span className="enter-hint">Enter to send <CornerDownLeft size={12}/></span><button className="send-button" disabled={!input.trim() || phase === "thinking"} type="submit" aria-label="Send message">{phase === "thinking" ? <span className="loading-spinner"/> : <ArrowUp size={21}/>}</button></div></div>
               </form>
-              <div className="composer-note" role="status">{notice || (phase === "thinking" ? `${assistant.name} is putting a thought together…` : phase === "speaking" ? "Demo response · turn on audio to listen" : "A conversation at your pace. No camera or microphone needed.")}</div>
+              <div className="composer-note" role="status">{composerNote}</div>
             </div>
           </div>
           <footer className="workspace-footer"><span>MADE FOR HUMAN MOMENTS</span><span className="footer-wordmark">a little more connected.</span></footer>
@@ -234,14 +354,14 @@ export default function Home() {
         <aside className="assistant-panel">
           <div className="assistant-panel-heading"><div className="section-kicker">YOUR COMPANY</div><h2>Find your kind of mind.</h2><p>A different perspective, same space for you.</p></div>
           <RadioGroup className="assistant-options" aria-label="Choose your assistant" value={selected} onValueChange={switchAssistant}>
-            {assistants.map(person => <label className={`assistant-option ${person.id === selected ? "selected" : ""}`} key={person.id} htmlFor={`assistant-${person.id}`}>
-              <div className="assistant-portrait"><img src={`/assistants/${person.id}.jpg`} alt={`${person.name} portrait`}/><span className="portrait-trait">{person.trait}</span>{person.id === selected && <span className="selected-check"><Check size={13}/></span>}</div>
-              <div className="assistant-option-details"><div><h3>{person.name}</h3><p>{person.role}</p></div><RadioGroupItem id={`assistant-${person.id}`} value={person.id} aria-label={`${person.name}, ${person.role}`}/></div>
+            {assistants.map(person => <label className={`assistant-option ${person.persona.id === selected ? "selected" : ""}`} key={person.persona.id} htmlFor={`assistant-${person.persona.id}`}>
+              <div className="assistant-portrait"><img src={person.persona.image} alt={`${person.persona.name} portrait`} style={{ objectPosition: person.focus }}/><span className="portrait-trait">{person.trait}</span>{person.persona.id === selected && <span className="selected-check"><Check size={13}/></span>}</div>
+              <div className="assistant-option-details"><div><h3>{person.persona.name}</h3><p>{person.role}</p></div><RadioGroupItem id={`assistant-${person.persona.id}`} value={person.persona.id} aria-label={`${person.persona.name}, ${person.role}`}/></div>
             </label>)}
           </RadioGroup>
-          <div className="assistant-note"><div className="note-icon"><Lightbulb size={17}/></div><p>A new perspective can change everything. Switch assistants anytime.</p></div>
+          <div className="assistant-note"><div className="note-icon"><Lightbulb size={17}/></div><p>Switch assistants anytime. A live session ends when you switch, and the new one starts with your next message.</p></div>
           <Dialog><DialogTrigger asChild><button className="about-button"><CircleHelp size={15}/> How this space works <ChevronRight size={14}/></button></DialogTrigger>
-            <DialogContent className="about-dialog"><DialogHeader><span className="dialog-icon"><AudioLines size={26}/></span><DialogTitle>A face to think alongside.</DialogTitle><DialogDescription>Choose an assistant, type a message, and make a little room for a new perspective.</DialogDescription></DialogHeader><div className="about-copy"><p>This is an interactive demo. The assistants use sample portrait videos, guided sample replies, and your browser’s voice when you enable audio. The video is not synchronized to the response.</p><p>Your conversation stays in this tab and clears when you reload. Connect an AI and avatar video service to enable live, personalized video responses.</p></div></DialogContent>
+            <DialogContent className="about-dialog"><DialogHeader><span className="dialog-icon"><AudioLines size={26}/></span><DialogTitle>A face to think alongside.</DialogTitle><DialogDescription>Choose an assistant, type a message, and she answers you on live video.</DialogDescription></DialogHeader><div className="about-copy"><p>Each reply is written in character by Grok, then performed in a continuously generated video stream from MiniMax H3 Max Director on fal.ai, starting from her portrait. Her voice comes from the stream itself.</p><p>Live sessions are billed per second with a 60-second minimum, and end at the time cap or when this tab goes into the background. The pipeline console in the top bar changes the engine, the brain, and the identity contract.</p><p>Your conversation stays in this tab and clears when you reload.</p></div></DialogContent>
           </Dialog>
         </aside>
       </div>

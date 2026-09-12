@@ -46,3 +46,5 @@ next-env.d.ts
 /.codex/
 /outputs/
 /work/
+# Lab output: test frames and raw renders from scripts/generate-idle-loops.mjs and browser runs.
+/.lab-runs/
