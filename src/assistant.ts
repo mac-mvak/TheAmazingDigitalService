@@ -128,11 +128,11 @@ function localReply(text: string): string {
   const lowered = text.toLowerCase();
 
   if (/^(hi|hey|hello|yo|sup)\b/.test(lowered)) {
-    return "Hello. I’m the Amazing Digital Service assistant. Ask a question, or ask me to show you an image.";
+    return "Hello. I’m the assistant inside this picture. Ask a question, or ask me to change the image.";
   }
 
   if (/(what can you do|help|who are you|what are you)/.test(lowered)) {
-    return "I can chat, look up a topic, and fetch a still when you ask for an image. Try “What is TypeScript?” or “Show me a harbor at dusk”.";
+    return "I live in the image. I can chat from here, look up a topic, or replace this still when you say “show me …”. Try “What is TypeScript?” or “Show me a harbor at dusk”.";
   }
 
   const math = text.match(/^(\d+(?:\.\d+)?)\s*([+\-*/x×])\s*(\d+(?:\.\d+)?)\s*$/);
@@ -158,7 +158,7 @@ export async function askAssistant(history: ChatMessage[]): Promise<AssistantRep
     const prompt = imagePrompt(userText);
     const imageUrl = await fetchAssistantImage(prompt);
     return {
-      text: `Here’s a still for “${prompt}”.`,
+      text: `Stepped into “${prompt}”. The picture around us just changed.`,
       imageUrl,
     };
   }

@@ -5,8 +5,8 @@
   --muted: #c8bfb0;
   --gold: #e2b657;
   --line: rgba(244, 239, 230, 0.16);
-  --user: rgba(226, 182, 87, 0.16);
-  --assistant: rgba(18, 16, 13, 0.82);
+  --user: rgba(226, 182, 87, 0.2);
+  --assistant: rgba(12, 11, 9, 0.62);
   font-family: "Outfit", system-ui, sans-serif;
   background: var(--ink);
   color: var(--paper);
@@ -41,39 +41,68 @@ body {
   border: 0;
 }
 
-.backdrop,
-.backdrop__veil {
+.canvas,
+.canvas__media,
+.canvas__veil {
   position: fixed;
   inset: 0;
 }
 
-.backdrop {
+.canvas__media {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  filter: saturate(0.7) contrast(1.05);
 }
 
-.backdrop__veil {
+.canvas__video {
+  filter: saturate(0.8) contrast(1.04);
+}
+
+.canvas__still {
+  z-index: 1;
+  animation: reveal 0.45s ease;
+}
+
+.has-still .canvas__video {
+  opacity: 0;
+}
+
+.canvas__veil {
+  z-index: 2;
   background:
-    linear-gradient(180deg, rgba(12, 11, 9, 0.55) 0%, rgba(12, 11, 9, 0.88) 100%),
+    linear-gradient(180deg, rgba(12, 11, 9, 0.28) 0%, rgba(12, 11, 9, 0.18) 38%, rgba(12, 11, 9, 0.78) 100%),
     repeating-linear-gradient(
       0deg,
-      rgba(255, 255, 255, 0.025) 0px,
-      rgba(255, 255, 255, 0.025) 1px,
+      rgba(255, 255, 255, 0.02) 0px,
+      rgba(255, 255, 255, 0.02) 1px,
       transparent 1px,
       transparent 3px
     );
 }
 
-.shell {
+.canvas__caption {
+  position: fixed;
+  z-index: 3;
+  left: 1.2rem;
+  bottom: 1.1rem;
+  margin: 0;
+  max-width: min(42vw, 22rem);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  color: var(--gold);
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.55);
+}
+
+.dock {
   position: relative;
-  z-index: 1;
+  z-index: 4;
   height: 100%;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  width: min(820px, 100%);
+  width: min(720px, 100%);
   margin: 0 auto;
+  padding: 0 0 0.4rem;
 }
 
 .topbar {
@@ -127,6 +156,7 @@ button[type="submit"] {
   color: var(--paper);
   border-radius: 999px;
   padding: 0.45rem 0.85rem;
+  backdrop-filter: blur(12px);
 }
 
 .transcript {
@@ -138,14 +168,15 @@ button[type="submit"] {
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  max-width: 36rem;
+  justify-content: flex-end;
+  max-width: 34rem;
+  padding-bottom: 0.4rem;
 }
 
 .empty h2 {
   margin: 0.35rem 0 0;
   font-family: "Fraunces", Georgia, serif;
-  font-size: clamp(2.2rem, 6vw, 3.4rem);
+  font-size: clamp(2.1rem, 6vw, 3.2rem);
   line-height: 0.95;
   letter-spacing: -0.04em;
 }
@@ -164,10 +195,11 @@ button[type="submit"] {
 
 .chip {
   border: 1px solid var(--line);
-  background: rgba(18, 16, 13, 0.7);
+  background: rgba(18, 16, 13, 0.62);
   color: var(--paper);
   border-radius: 999px;
   padding: 0.55rem 0.85rem;
+  backdrop-filter: blur(12px);
 }
 
 .row {
@@ -180,12 +212,12 @@ button[type="submit"] {
 }
 
 .bubble {
-  max-width: min(640px, 92%);
+  max-width: min(560px, 92%);
   border: 1px solid var(--line);
   border-radius: 18px;
   padding: 0.8rem 0.95rem 0.9rem;
   background: var(--assistant);
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(18px);
 }
 
 .row--user .bubble {
@@ -207,7 +239,6 @@ button[type="submit"] {
 .bubble__text {
   margin: 0;
   line-height: 1.5;
-  white-space: normal;
 }
 
 .bubble__text code {
@@ -216,15 +247,6 @@ button[type="submit"] {
   background: rgba(255, 255, 255, 0.06);
   padding: 0.05rem 0.3rem;
   border-radius: 6px;
-}
-
-.bubble__image {
-  display: block;
-  width: 100%;
-  max-height: 320px;
-  object-fit: cover;
-  border-radius: 12px;
-  margin-top: 0.75rem;
 }
 
 .typing {
@@ -262,6 +284,17 @@ button[type="submit"] {
   }
 }
 
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: scale(1.03);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .composer {
   display: flex;
   gap: 0.7rem;
@@ -276,12 +309,13 @@ textarea {
   overflow-y: auto;
   appearance: none;
   border: 1px solid var(--line);
-  background: rgba(18, 16, 13, 0.88);
+  background: rgba(18, 16, 13, 0.78);
   color: var(--paper);
   border-radius: 16px;
   padding: 0.9rem 1rem;
   font: inherit;
   line-height: 1.4;
+  backdrop-filter: blur(16px);
 }
 
 textarea:focus {
@@ -304,6 +338,10 @@ button:disabled {
 }
 
 @media (max-width: 640px) {
+  .canvas__caption {
+    display: none;
+  }
+
   .composer {
     flex-direction: column;
     align-items: stretch;
