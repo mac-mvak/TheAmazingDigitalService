@@ -1,0 +1,233 @@
+:root {
+  color-scheme: dark;
+  --ink: #0c0b09;
+  --paper: #f4efe6;
+  --muted: #c8bfb0;
+  --gold: #e2b657;
+  --line: rgba(244, 239, 230, 0.16);
+  --shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+  font-family: "Outfit", system-ui, sans-serif;
+  background: var(--ink);
+  color: var(--paper);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(1200px 500px at 80% -10%, rgba(226, 182, 87, 0.12), transparent 55%),
+    var(--ink);
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.hero {
+  position: relative;
+  height: min(68vh, 640px);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.hero__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(0.85) contrast(1.05);
+}
+
+.hero__veil {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(12, 11, 9, 0.15) 0%, rgba(12, 11, 9, 0.72) 100%),
+    repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.03) 0px,
+      rgba(255, 255, 255, 0.03) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+}
+
+.hero__copy {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 2.5rem clamp(1.25rem, 5vw, 4rem) 5.5rem;
+  max-width: 48rem;
+}
+
+.eyebrow {
+  margin: 0 0 0.6rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  color: var(--gold);
+}
+
+h1 {
+  margin: 0;
+  font-family: "Fraunces", Georgia, serif;
+  font-size: clamp(2.4rem, 6vw, 4.6rem);
+  font-weight: 700;
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+}
+
+.lede {
+  margin: 1rem 0 0;
+  max-width: 34rem;
+  color: var(--muted);
+  font-size: 1.05rem;
+  line-height: 1.5;
+}
+
+.stage {
+  width: min(1080px, calc(100% - 2rem));
+  margin: -3.25rem auto 4rem;
+  position: relative;
+  z-index: 2;
+}
+
+.search {
+  background: rgba(18, 16, 13, 0.88);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  padding: 1.15rem 1.2rem 1rem;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(16px);
+}
+
+.search__label {
+  display: block;
+  font-size: 0.78rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 0.65rem;
+}
+
+.search__row {
+  display: flex;
+  gap: 0.75rem;
+}
+
+input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  appearance: none;
+  border: 1px solid rgba(244, 239, 230, 0.18);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--paper);
+  border-radius: 14px;
+  padding: 0.95rem 1rem;
+  font: inherit;
+  font-size: 1.05rem;
+}
+
+input[type="text"]::placeholder {
+  color: #8f8678;
+}
+
+input[type="text"]:focus {
+  outline: 2px solid var(--gold);
+  outline-offset: 1px;
+}
+
+button {
+  border: 0;
+  border-radius: 14px;
+  background: var(--gold);
+  color: #1c1608;
+  font: inherit;
+  font-weight: 600;
+  padding: 0.95rem 1.2rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+button:hover {
+  filter: brightness(1.06);
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.search__hint {
+  min-height: 1.3rem;
+  margin: 0.7rem 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+  margin-top: 1.5rem;
+}
+
+.card {
+  margin: 0;
+  background: #161410;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.card img {
+  display: block;
+  width: 100%;
+  height: 280px;
+  object-fit: cover;
+}
+
+figcaption {
+  padding: 0.95rem 1.05rem 1.1rem;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+figcaption span {
+  display: block;
+  color: var(--gold);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  margin-bottom: 0.35rem;
+}
+
+@media (max-width: 640px) {
+  .hero {
+    height: 52vh;
+  }
+
+  .search__row {
+    flex-direction: column;
+  }
+
+  button {
+    width: 100%;
+  }
+}
