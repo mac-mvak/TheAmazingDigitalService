@@ -10,8 +10,12 @@ export type FetchState =
   | { kind: "ready"; result: ImageResult }
   | { kind: "error"; query: string; message: string };
 
-export const LOCAL_INPUT_IMAGE = "/images/fetched-input.jpg";
-export const HERO_VIDEO = "/video/hero.mp4";
+function publicUrl(relativePath: string): string {
+  return `${import.meta.env.BASE_URL}${relativePath.replace(/^\/+/, "")}`;
+}
+
+export const LOCAL_INPUT_IMAGE = publicUrl("images/fetched-input.jpg");
+export const HERO_VIDEO = publicUrl("video/hero.mp4");
 
 export function imageSourceForQuery(query: string): string {
   const seed = encodeURIComponent(query.trim().toLowerCase() || "horizon");
