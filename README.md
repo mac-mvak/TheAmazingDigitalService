@@ -1,6 +1,6 @@
 # The Amazing Digital Service
 
-An AI assistant interface in TypeScript: chat on a looping video backdrop, with lookups and fetched stills.
+An AI assistant that lives inside the picture: chat overlays the image, and “show me …” replaces the scene.
 
 ## Live site
 
@@ -21,8 +21,8 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173).
 
-- The chat composer is the main interface. Enter sends, Shift+Enter adds a line.
-- Image requests (`show me a harbor at dusk`) fetch a still.
+- The assistant sits on the image. Enter sends, Shift+Enter adds a line.
+- Image requests (`show me a harbor at dusk`) replace the whole scene, not a thumbnail.
 - Other questions try a public text model, then Wikipedia, then a local reply.
 
 ## Build
