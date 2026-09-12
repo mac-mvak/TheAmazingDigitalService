@@ -56,6 +56,7 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
   const versionRef = useRef(1);
   const lastPromptAtRef = useRef(0);
   const pendingAnchorRef = useRef<PendingAnchor | null>(null);
+  const admittedAnchorRef = useRef<number | null>(null);
   const openedAtRef = useRef(0);
   const timersRef = useRef<ReturnType<typeof setInterval>[]>([]);
   const configRef = useRef<DirectorConfig | null>(null);
@@ -75,6 +76,7 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
     const handle = handleRef.current;
     handleRef.current = null;
     pendingAnchorRef.current = null;
+    admittedAnchorRef.current = null;
     clearTimers();
     if (handle) {
       handle.send({ type: "stop" });
@@ -149,7 +151,7 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
       // Track delivery: onData resends this anchor until a prompt_applied for
       // its version confirms it landed in a generated chunk.
       pendingAnchorRef.current = { version, url: targetUrl, settle, label, attempts: 1, lastSentAt: Date.now() };
-      log("re-anchor sent", `end_image_url → ${label} (v${version}, will retry until it lands)`);
+      log("re-anchor sent", `end_image_url → ${label} (v${version}, will retry until admitted)`);
     },
     [captureSnapshotUrl, log],
   );
@@ -182,16 +184,35 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
   );
 
   const trackAnchorDelivery = useCallback(
-    (type: string, version: number | null) => {
+    (type: string, version: number | null, reason: string | null, endKeyframe: boolean | null) => {
+      // The contract has NO positive end-image ack: prompt_applied only means the
+      // message was "admitted". script_end_keyframe on a chunk is undocumented but
+      // is the only candidate landing signal — probe for it after admission.
+      if (type === "chunk" && admittedAnchorRef.current !== null && version !== null && version >= admittedAnchorRef.current) {
+        if (endKeyframe === true) {
+          log("anchor keyframe chunk observed", `script_end_keyframe=true under v${version} — empirical landing confirmation`);
+          admittedAnchorRef.current = null;
+        }
+      }
       const pending = pendingAnchorRef.current;
       if (!pending || version === null) return;
       if (type === "prompt_applied" && version === pending.version) {
-        log("re-anchor landed", `${pending.label}, v${pending.version} after ${pending.attempts} attempt(s)`);
+        log(
+          "re-anchor admitted",
+          `${pending.label}, v${pending.version} after ${pending.attempts} attempt(s) — admission ack only; watching chunks for the keyframe`,
+        );
+        admittedAnchorRef.current = pending.version;
         pendingAnchorRef.current = null;
         return;
       }
       if (type === "prompt_rejected" && version === pending.version) {
-        resendPendingAnchor("rejected");
+        if (reason === "invalid_image") {
+          // The frame URL itself was refused — resending the same image cannot succeed.
+          log("re-anchor gave up", "rejected: invalid_image — anchor frame refused, not retrying the same image");
+          pendingAnchorRef.current = null;
+          return;
+        }
+        resendPendingAnchor(`rejected (${reason ?? "unknown reason"})`);
         return;
       }
       // A newer prompt got applied, or a chunk was generated past our version:
@@ -233,6 +254,7 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
       setCapSec(config.maxSessionSec);
       versionRef.current = 1;
       pendingAnchorRef.current = null;
+      admittedAnchorRef.current = null;
       setEvents([]);
       setTtffMs(null);
       setBufferDepth(null);
@@ -272,13 +294,20 @@ export function useDirectorSession(videoRef: React.RefObject<HTMLVideoElement | 
             const metrics = (message.metrics ?? message) as Record<string, unknown>;
             const depth = metrics["buffer_depth_seconds"];
             if (typeof depth === "number") setBufferDepth(depth);
-            const interesting = ["generation_time", "buffer_depth_seconds", "next_generation_estimate_seconds", "prompt_version", "reason", "code", "message"]
+            const interesting = ["generation_time", "buffer_depth_seconds", "next_generation_estimate_seconds", "prompt_version", "reason", "code", "message", "script_end_keyframe", "trimmed_context_frames"]
               .map(key => (metrics[key] !== undefined ? `${key}=${metrics[key]}` : message[key] !== undefined ? `${key}=${message[key]}` : null))
               .filter(Boolean)
               .join(" ");
             log(type, interesting || undefined);
             const rawVersion = message["prompt_version"] ?? metrics["prompt_version"];
-            trackAnchorDelivery(type, typeof rawVersion === "number" ? rawVersion : null);
+            const rawReason = message["reason"] ?? metrics["reason"];
+            const rawKeyframe = message["script_end_keyframe"] ?? metrics["script_end_keyframe"];
+            trackAnchorDelivery(
+              type,
+              typeof rawVersion === "number" ? rawVersion : null,
+              typeof rawReason === "string" ? rawReason : null,
+              typeof rawKeyframe === "boolean" ? rawKeyframe : null,
+            );
           } catch {
             log("data", raw.slice(0, 120));
           }
