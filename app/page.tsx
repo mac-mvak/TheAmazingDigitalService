@@ -309,9 +309,7 @@ export default function Home() {
       <header className="topbar">
         <Link className="brand" href="/" aria-label="Folio home"><span className="brand-mark"><AudioLines size={23} strokeWidth={2.3}/></span>folio<span className="brand-period">.</span></Link>
         <div className="workspace-label">Your personal workspace <ChevronDown size={14}/></div>
-        <div className="topbar-actions"><span className="private-label"><Leaf size={14}/> A little space for you</span>
-          <button className="text-button pipeline-button" onClick={() => setConsoleOpen(true)} aria-label="Open the pipeline console"><SlidersHorizontal size={15}/><span>Pipeline</span>{streaming && <span className="pipeline-live-dot" aria-hidden="true"/>}</button>
-          <div className="profile" aria-label="Personal workspace">Y</div></div>
+        <div className="topbar-actions"><span className="private-label"><Leaf size={14}/> A little space for you</span><div className="profile" aria-label="Personal workspace">Y</div></div>
       </header>
       <PipelineConsole open={consoleOpen} onOpenChange={setConsoleOpen} assistant={assistant} settings={settings} onChange={updateSettings} session={session} connecting={connecting} onGoLive={() => void goLive()} onEnd={endLive} />
       <div className="workspace">
@@ -319,6 +317,8 @@ export default function Home() {
           <div className="session-bar">
             <div className="breadcrumb"><Video size={16}/><span>Conversation</span><ChevronRight size={13}/><span className="breadcrumb-current">With {name}</span></div>
             <div className="session-actions">
+              <button className="text-button pipeline-button" onClick={() => setConsoleOpen(true)} aria-label="Open the pipeline console"><SlidersHorizontal size={15}/><span>Pipeline</span>{streaming && <span className="pipeline-live-dot" aria-hidden="true"/>}</button>
+              <span className="action-divider"/>
               <Sheet><SheetTrigger asChild><button className="text-button" aria-label="Open transcript"><MessageSquare size={15}/><span>Transcript</span>{messages.length > 0 && <span className="message-count">{messages.length}</span>}</button></SheetTrigger>
                 <SheetContent className="transcript-sheet"><SheetHeader><SheetTitle>Your conversation</SheetTitle><SheetDescription>Everything said in this session. It stays here until you start a new session or reload.</SheetDescription></SheetHeader>
                   <div className="transcript-messages" role="log" aria-label="Conversation transcript">
