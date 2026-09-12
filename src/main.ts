@@ -1,72 +1,53 @@
 import "./style.css";
-import {
-  fetchInputImage,
-  HERO_VIDEO,
-  LOCAL_INPUT_IMAGE,
-  type FetchState,
-  type ImageResult,
-} from "./images";
+import { askAssistant } from "./assistant";
+import { formatMessage } from "./format";
+import { HERO_VIDEO, LOCAL_INPUT_IMAGE } from "./images";
+import { newId, type ChatMessage } from "./types";
 
 const app = document.querySelector<HTMLDivElement>("#app");
-
 if (!app) {
   throw new Error("Missing #app root.");
 }
 
-let state: FetchState = { kind: "idle" };
-let previousObjectUrl: string | undefined;
+const suggestions = [
+  "What can you do?",
+  "What is TypeScript?",
+  "Show me a harbor at dusk",
+];
 
 app.innerHTML = `
-  <header class="hero">
-    <video
-      class="hero__video"
-      autoplay
-      muted
-      loop
-      playsinline
-      poster="${LOCAL_INPUT_IMAGE}"
-    >
-      <source src="${HERO_VIDEO}" type="video/mp4" />
-    </video>
-    <div class="hero__veil"></div>
-    <div class="hero__copy">
-      <p class="eyebrow">Live feed</p>
-      <h1>The Amazing Digital Service</h1>
-      <p class="lede">A looping reel up top. Type a word below and we fetch a still for it.</p>
-    </div>
-  </header>
+  <video class="backdrop" autoplay muted loop playsinline poster="${LOCAL_INPUT_IMAGE}">
+    <source src="${HERO_VIDEO}" type="video/mp4" />
+  </video>
+  <div class="backdrop__veil"></div>
 
-  <main class="stage">
-    <form class="search" id="image-form" autocomplete="off">
-      <label class="search__label" for="image-query">Look up a still</label>
-      <div class="search__row">
-        <input
-          id="image-query"
-          name="query"
-          type="text"
-          maxlength="80"
-          placeholder="Try forest, harbor, dusk…"
-          required
-        />
-        <button type="submit">Fetch image</button>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand__mark" aria-hidden="true"></span>
+        <div>
+          <p class="eyebrow">Assistant</p>
+          <h1>Amazing Digital Service</h1>
+        </div>
       </div>
-      <p class="search__hint" id="status-line" role="status"></p>
-    </form>
+      <button type="button" class="ghost" id="new-chat">New chat</button>
+    </header>
 
-    <section class="gallery" aria-label="Images">
-      <figure class="card card--local">
-        <img src="${LOCAL_INPUT_IMAGE}" alt="Fetched archive still of a mountain river valley" />
-        <figcaption>
-          <span>Archive still</span>
-          Bundled from Picsum and stored in the repo.
-        </figcaption>
-      </figure>
-      <figure class="card card--live" id="live-card" hidden>
-        <img id="live-image" alt="" />
-        <figcaption id="live-caption"></figcaption>
-      </figure>
-    </section>
-  </main>
+    <main class="transcript" id="transcript" aria-live="polite"></main>
+
+    <form class="composer" id="composer" autocomplete="off">
+      <label class="sr-only" for="prompt">Message the assistant</label>
+      <textarea
+        id="prompt"
+        name="prompt"
+        rows="1"
+        maxlength="2000"
+        placeholder="Message the assistant…"
+        required
+      ></textarea>
+      <button type="submit" id="send">Send</button>
+    </form>
+  </div>
 `;
 
 function requireElement<T extends Element>(value: T | null, name: string): T {
@@ -76,86 +57,153 @@ function requireElement<T extends Element>(value: T | null, name: string): T {
   return value;
 }
 
-const form = requireElement(app.querySelector<HTMLFormElement>("#image-form"), "form");
-const input = requireElement(app.querySelector<HTMLInputElement>("#image-query"), "input");
-const statusLine = requireElement(
-  app.querySelector<HTMLParagraphElement>("#status-line"),
-  "status line",
-);
-const liveCard = requireElement(app.querySelector<HTMLElement>("#live-card"), "live card");
-const liveImage = requireElement(app.querySelector<HTMLImageElement>("#live-image"), "live image");
-const liveCaption = requireElement(
-  app.querySelector<HTMLElement>("#live-caption"),
-  "live caption",
-);
-const video = app.querySelector<HTMLVideoElement>(".hero__video");
+const transcript = requireElement(app.querySelector<HTMLElement>("#transcript"), "transcript");
+const form = requireElement(app.querySelector<HTMLFormElement>("#composer"), "composer");
+const input = requireElement(app.querySelector<HTMLTextAreaElement>("#prompt"), "prompt");
+const send = requireElement(app.querySelector<HTMLButtonElement>("#send"), "send");
+const newChat = requireElement(app.querySelector<HTMLButtonElement>("#new-chat"), "new chat");
+const video = app.querySelector<HTMLVideoElement>(".backdrop");
 
 video?.play().catch(() => {
-  /* Autoplay can be blocked; the muted loop should still start from user interaction. */
+  /* Autoplay can be blocked; the muted loop should still start after interaction. */
 });
 
-function setState(next: FetchState): void {
-  if (state.kind === "ready") {
-    previousObjectUrl = state.result.objectUrl;
-  }
-  state = next;
-  renderState();
-}
+let messages: ChatMessage[] = [];
+let busy = false;
 
-function renderState(): void {
-  form.querySelector("button")?.toggleAttribute("disabled", state.kind === "loading");
-
-  if (state.kind === "idle") {
-    statusLine.textContent = "Waiting for a word.";
+function render(): void {
+  if (messages.length === 0) {
+    transcript.innerHTML = `
+      <section class="empty">
+        <p class="eyebrow">Live session</p>
+        <h2>How can I help?</h2>
+        <p>Ask a question, or ask me to fetch a still.</p>
+        <div class="chips">
+          ${suggestions
+            .map((item) => `<button type="button" class="chip" data-prompt="${escapeAttribute(item)}">${item}</button>`)
+            .join("")}
+        </div>
+      </section>
+    `;
     return;
   }
 
-  if (state.kind === "loading") {
-    statusLine.textContent = `Fetching a still for “${state.query}”…`;
+  transcript.innerHTML = messages
+    .map((message) => {
+      const image = message.imageUrl
+        ? `<img class="bubble__image" src="${message.imageUrl}" alt="Fetched still" />`
+        : "";
+      const body = message.pending
+        ? `<span class="typing" aria-label="Assistant is thinking"><i></i><i></i><i></i></span>`
+        : formatMessage(message.text);
+      return `
+        <article class="row row--${message.role}${message.error ? " row--error" : ""}">
+          <div class="bubble">
+            <p class="bubble__who">${message.role === "user" ? "You" : "Assistant"}</p>
+            <div class="bubble__text">${body}</div>
+            ${image}
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+
+  transcript.scrollTop = transcript.scrollHeight;
+}
+
+function escapeAttribute(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
+}
+
+function resizeComposer(): void {
+  input.style.height = "auto";
+  input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+}
+
+async function sendMessage(text: string): Promise<void> {
+  const trimmed = text.trim();
+  if (!trimmed || busy) {
     return;
   }
 
-  if (state.kind === "error") {
-    statusLine.textContent = state.message;
-    return;
-  }
-
-  paintLiveImage(state.result);
-  statusLine.textContent = `Fetched “${state.result.query}”.`;
-}
-
-function paintLiveImage(result: ImageResult): void {
-  liveImage.src = result.objectUrl;
-  liveImage.alt = `Fetched still for ${result.query}`;
-  liveCaption.innerHTML = `<span>Live fetch</span> Result for “${escapeHtml(result.query)}”.`;
-  liveCard.hidden = false;
-
-  if (previousObjectUrl && previousObjectUrl !== result.objectUrl) {
-    URL.revokeObjectURL(previousObjectUrl);
-    previousObjectUrl = undefined;
-  }
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-form.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const query = input.value.trim();
-  setState({ kind: "loading", query });
+  busy = true;
+  send.disabled = true;
+  messages = [
+    ...messages,
+    { id: newId(), role: "user", text: trimmed },
+    { id: newId(), role: "assistant", text: "", pending: true },
+  ];
+  input.value = "";
+  resizeComposer();
+  render();
 
   try {
-    const result = await fetchInputImage(query);
-    setState({ kind: "ready", result });
+    const reply = await askAssistant(messages.filter((message) => !message.pending));
+    messages = messages.map((message) => {
+      if (!message.pending) {
+        return message;
+      }
+      const next: ChatMessage = {
+        id: message.id,
+        role: message.role,
+        pending: false,
+        text: reply.text,
+      };
+      if (reply.imageUrl) {
+        next.imageUrl = reply.imageUrl;
+      }
+      return next;
+    });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Could not fetch that image.";
-    setState({ kind: "error", query, message });
+    const details = error instanceof Error ? error.message : "Something went wrong.";
+    messages = messages.map((message) =>
+      message.pending ? { ...message, pending: false, error: true, text: details } : message,
+    );
+  } finally {
+    busy = false;
+    send.disabled = false;
+    render();
+    input.focus();
+  }
+}
+
+transcript.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  const prompt = target.dataset.prompt;
+  if (prompt) {
+    void sendMessage(prompt);
   }
 });
 
-renderState();
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void sendMessage(input.value);
+});
+
+input.addEventListener("input", resizeComposer);
+
+input.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    void sendMessage(input.value);
+  }
+});
+
+newChat.addEventListener("click", () => {
+  for (const message of messages) {
+    if (message.imageUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(message.imageUrl);
+    }
+  }
+  messages = [];
+  busy = false;
+  send.disabled = false;
+  render();
+  input.focus();
+});
+
+render();
+input.focus();
