@@ -1,0 +1,77 @@
+{
+  "reuse": "Pexels license permits free website/app use and modification without required attribution. Do not imply endorsement by the depicted people. These are demonstration stock video clips, not footage of an actual interactive agent.",
+  "assets": [
+    {
+      "name": "woman-primary",
+      "video": "/tmp/assistant-assets/woman-primary.mp4",
+      "poster": "/tmp/assistant-assets/woman-primary.jpg",
+      "source_page": "https://www.pexels.com/video/woman-talking-and-looking-at-the-camera-8048241/",
+      "media_url": "https://videos.pexels.com/video-files/8048241/8048241-hd_1920_1080_25fps.mp4",
+      "author": "Antoni Shkraba",
+      "license_url": "https://www.pexels.com/license/",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 1280,
+            "height": 720
+          }
+        ],
+        "format": {
+          "duration": "12.000000",
+          "size": "1430085"
+        }
+      }
+    },
+    {
+      "name": "man",
+      "video": "/tmp/assistant-assets/man.mp4",
+      "poster": "/tmp/assistant-assets/man.jpg",
+      "source_page": "https://www.pexels.com/video/man-looking-at-the-camera-while-talking-8048255/",
+      "media_url": "https://videos.pexels.com/video-files/8048255/8048255-hd_1920_1080_25fps.mp4",
+      "author": "Antoni Shkraba",
+      "license_url": "https://www.pexels.com/license/",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 1280,
+            "height": 720
+          }
+        ],
+        "format": {
+          "duration": "12.000000",
+          "size": "1325919"
+        }
+      }
+    },
+    {
+      "name": "woman-secondary",
+      "video": "/tmp/assistant-assets/woman-secondary.mp4",
+      "poster": "/tmp/assistant-assets/woman-secondary.jpg",
+      "source_page": "https://www.pexels.com/video/a-woman-waving-and-talking-to-the-camera-8136213/",
+      "media_url": "https://videos.pexels.com/video-files/8136213/8136213-hd_1080_1920_25fps.mp4",
+      "author": "ANTONI SHKRABA production",
+      "license_url": "https://www.pexels.com/license/",
+      "probe": {
+        "programs": [],
+        "stream_groups": [],
+        "streams": [
+          {
+            "codec_name": "h264",
+            "width": 720,
+            "height": 1280
+          }
+        ],
+        "format": {
+          "duration": "12.000000",
+          "size": "2308581"
+        }
+      }
+    }
+  ]
+}
